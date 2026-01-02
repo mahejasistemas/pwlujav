@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
+import AIChatBot from "@/components/AIChatBot";
 import { usePathname } from "next/navigation";
 
 export default function DashboardLayout({
@@ -20,6 +21,7 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+      <AIChatBot />
     </div>
   );
 }

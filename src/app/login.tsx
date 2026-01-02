@@ -2,12 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { IoEyeOutline, IoEyeOffOutline } from "react-icons/io5";
-import { AlertCircle } from "lucide-react";
+import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import "./login.css";
 
 export default function Login() {
   const router = useRouter();
@@ -19,19 +17,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getErrorMessage = (error: string) => {
-    switch (error) {
-      case "Invalid login credentials":
-        return "Credenciales incorrectas. Por favor, verifica tu correo y contraseña.";
-      case "User already registered":
-        return "El usuario ya está registrado. Intenta iniciar sesión.";
-      case "Password should be at least 6 characters":
-        return "La contraseña debe tener al menos 6 caracteres.";
-      case "Email not confirmed":
-        return "Correo electrónico no confirmado. Revisa tu bandeja de entrada.";
-      default:
-        return error;
-    }
+  const toggleMode = () => {
+    setIsLogin(!isLogin);
+    setError(null);
   };
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -47,7 +35,7 @@ export default function Login() {
         });
         if (error) throw error;
         toast.success("Inicio de sesión exitoso", {
-          description: "Bienvenido a la plataforma.",
+          description: "Bienvenido a Transportes Lujav.",
         });
         router.push("/dashboard");
       } else {
@@ -66,10 +54,9 @@ export default function Login() {
         });
       }
     } catch (err: any) {
-      const message = getErrorMessage(err.message);
-      setError(message);
+      setError(err.message);
       toast.error("Error de autenticación", {
-        description: message,
+        description: err.message,
       });
     } finally {
       setLoading(false);
@@ -77,161 +64,207 @@ export default function Login() {
   };
 
   return (
-    <div className="login-wrapper">
-      {/* Left Side - Editorial/Branding (No Logo) */}
-      <div className="brand-section">
-        <div className="brand-content">
-          <h1 className="brand-title">
-            Transportes Lujav <br />
-            <span style={{ opacity: 0.5 }}>Sistema de Cotizaciones.</span>
+    <div className="flex min-h-screen w-full font-sans bg-white">
+      {/* Left Side - Red Background with Grid Pattern */}
+      <div className="hidden lg:flex lg:w-1/2 relative bg-[#8B0000] text-white flex-col justify-center px-20 overflow-hidden">
+        {/* Grid Pattern Overlay */}
+        <div 
+          className="absolute inset-0 opacity-10"
+          style={{
+            backgroundImage: `linear-gradient(#ffffff 1px, transparent 1px), linear-gradient(90deg, #ffffff 1px, transparent 1px)`,
+            backgroundSize: '40px 40px'
+          }}
+        ></div>
+        
+        {/* Content */}
+        <div className="relative z-10 max-w-lg">
+          <h1 className="text-5xl font-bold tracking-tight mb-6">
+            Transportes <br /> Lujav
           </h1>
-          <p className="brand-description">
-            Plataforma exclusiva para la gestión interna de logística. 
-            Genera cotizaciones precisas, administra rutas y optimiza los <span className="brand-highlight">servicios de transporte</span> de la empresa.
+          <p className="text-red-100 text-lg leading-relaxed font-light mb-8 max-w-md">
+            Transformamos la logística en eficiencia. Accede a tu panel de control para gestionar rutas, cotizaciones y servicios de transporte.
           </p>
-        </div>
-        <div className="absolute bottom-12 left-24 text-xs text-white opacity-40">
-          &copy; {new Date().getFullYear()} Transportes Lujav.
+          
+          {/* Slider Indicators (Decorative) */}
+          <div className="flex gap-2">
+            <div className="h-1.5 w-8 bg-white/90 rounded-full"></div>
+            <div className="h-1.5 w-2 bg-white/30 rounded-full"></div>
+            <div className="h-1.5 w-2 bg-white/30 rounded-full"></div>
+          </div>
         </div>
       </div>
 
       {/* Right Side - Form */}
-      <div className="form-section">
-        <div className="form-container">
-          {/* Header */}
-          <div className="form-header">
-            <h2 className="form-title">
-              {isLogin ? "Plataforma Lujav" : "Solicitar Acceso"}
+      <div className="flex-1 flex items-center justify-center p-8 lg:p-24 bg-white">
+        <div className="w-full max-w-[400px] space-y-6">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
+              {isLogin ? "Bienvenido de nuevo" : "Crear cuenta"}
             </h2>
-            <p className="form-subtitle">
-              {isLogin
-                ? "Ingresa tus credenciales para gestionar cotizaciones."
-                : "Contacta al administrador para obtener una cuenta."}
+            <p className="mt-2 text-sm text-gray-500">
+              {isLogin 
+                ? "Ingresa tus credenciales para acceder" 
+                : "Ingresa tus datos para registrarte"}
             </p>
           </div>
 
-          {/* Error Message */}
           {error && (
-            <Alert
-              variant={
-                error.includes("Correo electrónico no confirmado")
-                  ? "default"
-                  : "destructive"
-              }
-              className={`mb-4 ${
-                error.includes("Correo electrónico no confirmado")
-                  ? "bg-yellow-100 border-yellow-200 text-red-600"
-                  : ""
-              }`}
-            >
-              <AlertCircle
-                className={`h-4 w-4 ${
-                  error.includes("Correo electrónico no confirmado")
-                    ? "text-red-600"
-                    : ""
-                }`}
-              />
-              <AlertTitle
-                className={
-                  error.includes("Correo electrónico no confirmado")
-                    ? "text-red-700"
-                    : ""
-                }
-              >
-                {error.includes("Correo electrónico no confirmado")
-                  ? "Atención"
-                  : "Error"}
-              </AlertTitle>
+            <Alert variant="destructive" className="border-red-200 bg-red-50 text-red-800 text-sm py-2">
+              <AlertTitle className="text-red-900 font-medium text-xs uppercase tracking-wide">Error</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleAuth}>
+          <form onSubmit={handleAuth} className="space-y-5">
             {!isLogin && (
-              <div className="input-group">
-                <label htmlFor="name" className="input-label">
+              <div className="space-y-1.5">
+                <label htmlFor="name" className="text-xs font-medium text-gray-600 ml-1">
                   Nombre Completo
                 </label>
-                <input
-                  type="text"
-                  id="name"
-                  placeholder="Ej. Juan Pérez"
-                  className="input-field"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-400 text-sm">Aa</span>
+                  </div>
+                  <input
+                    id="name"
+                    type="text"
+                    placeholder="Ej. Juan Pérez"
+                    className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all bg-white placeholder:text-gray-300 text-sm"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required={!isLogin}
+                  />
+                </div>
               </div>
             )}
 
-            <div className="input-group">
-              <label htmlFor="email" className="input-label">
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="text-xs font-medium text-gray-600 ml-1">
                 Correo Electrónico
               </label>
-              <input
-                type="email"
-                id="email"
-                placeholder="nombre@empresa.com"
-                className="input-field"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Mail className="h-4 w-4 text-gray-400" />
+                </div>
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="ejemplo@transporteslujav.com"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all bg-white placeholder:text-gray-300 text-sm"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
             </div>
 
-            <div className="input-group">
-              <div className="flex items-center justify-between">
-                <label htmlFor="password" className="input-label">
-                  Contraseña
-                </label>
-                {isLogin && (
-                  <a
-                    href="#"
-                    className="text-xs font-medium text-gray-500 hover:text-black transition-colors"
-                  >
-                    ¿Olvidaste tu contraseña?
-                  </a>
-                )}
-              </div>
-              <div className="password-wrapper">
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="text-xs font-medium text-gray-600 ml-1">
+                Contraseña
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Lock className="h-4 w-4 text-gray-400" />
+                </div>
                 <input
-                  type={showPassword ? "text" : "password"}
                   id="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  className="input-field"
+                  className="w-full pl-9 pr-10 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition-all bg-white placeholder:text-gray-300 text-sm"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  minLength={6}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="password-toggle"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
-                  {showPassword ? (
-                    <IoEyeOffOutline className="h-5 w-5" />
-                  ) : (
-                    <IoEyeOutline className="h-5 w-5" />
-                  )}
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            <button type="submit" className="submit-btn" disabled={loading}>
-              {loading ? "Procesando..." : isLogin ? "Entrar" : "Registrarse"}
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="remember"
+                  className="h-3.5 w-3.5 rounded border-gray-300 text-black focus:ring-black"
+                />
+                <label htmlFor="remember" className="text-xs text-gray-500 cursor-pointer">
+                  Recordarme
+                </label>
+              </div>
+              {isLogin && (
+                <button type="button" className="text-xs text-gray-500 hover:text-black font-medium">
+                  ¿Olvidaste tu contraseña?
+                </button>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-black hover:bg-gray-800 text-white font-medium py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 mt-4 text-sm"
+            >
+              {loading ? (
+                <Loader2 className="animate-spin h-4 w-4" />
+              ) : (
+                <>
+                  {isLogin ? "Iniciar Sesión" : "Registrarse"}
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
             </button>
           </form>
 
-          <p className="toggle-text">
-            {isLogin ? "¿Aún no tienes cuenta?" : "¿Ya tienes una cuenta?"}
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="toggle-link"
-            >
-              {isLogin ? "Crear cuenta" : "Inicia sesión"}
-            </button>
-          </p>
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-gray-100" />
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase tracking-wider">
+              <span className="bg-white px-2 text-gray-400">O continuar con</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 text-sm"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24">
+              <path
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                fill="#4285F4"
+              />
+              <path
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                fill="#34A853"
+              />
+              <path
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                fill="#FBBC05"
+              />
+              <path
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                fill="#EA4335"
+              />
+            </svg>
+            Google
+          </button>
+
+          <div className="text-center pt-2">
+            <p className="text-gray-400 text-xs">
+              {isLogin ? "¿No tienes una cuenta? " : "¿Ya tienes una cuenta? "}
+              <button
+                onClick={toggleMode}
+                className="text-black font-bold hover:underline"
+              >
+                {isLogin ? "Regístrate ahora" : "Inicia sesión"}
+              </button>
+            </p>
+          </div>
         </div>
       </div>
     </div>

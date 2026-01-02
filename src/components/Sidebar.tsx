@@ -22,7 +22,9 @@ import {
   Mail,
   DollarSign,
   BarChart,
-  UserCog
+  UserCog,
+  Briefcase,
+  Bot
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -47,6 +49,11 @@ const menuItems: MenuItem[] = [
     icon: FileText,
   },
   {
+    title: "Servicios",
+    href: "/dashboard/servicios",
+    icon: Briefcase,
+  },
+  {
     title: "Clientes",
     href: "/dashboard/clientes",
     icon: Users,
@@ -65,6 +72,11 @@ const menuItems: MenuItem[] = [
     title: "Tarifario",
     href: "/dashboard/tarifario",
     icon: DollarSign,
+  },
+  {
+    title: "IA",
+    href: "/dashboard/ia",
+    icon: Bot,
   },
   {
     title: "Reportes",
