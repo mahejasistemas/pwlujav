@@ -22,11 +22,22 @@ import { cn } from "@/lib/utils";
 import { generateContent } from "@/app/actions/gemini";
 import { toast } from "sonner";
 import { User } from "firebase/auth";
+import { db } from "@/lib/firebase";
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  serverTimestamp,
+  Timestamp 
+} from "firebase/firestore";
 
 interface Message {
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: Date;
+  timestamp: Date | Timestamp;
 }
 
 interface AIChatBotProps {
@@ -41,6 +52,30 @@ export default function AIChatBot({ isOpen, onClose, user }: AIChatBotProps) {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Load messages from Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const q = query(
+      collection(db, `users/${user.uid}/messages`), 
+      orderBy("timestamp", "asc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // Convert Firestore Timestamp to Date for display if needed
+        timestamp: doc.data().timestamp?.toDate() || new Date() 
+      })) as Message[];
+      setMessages(msgs);
+    }, (error) => {
+      console.error("Error loading messages:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -50,41 +85,68 @@ export default function AIChatBot({ isOpen, onClose, user }: AIChatBotProps) {
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
 
-    const newMessage: Message = { 
-      role: 'user', 
-      content: inputValue,
-      timestamp: new Date()
-    };
-    setMessages(prev => [...prev, newMessage]);
-    setInputValue("");
-    setIsLoading(true);
+    const content = inputValue;
+    setInputValue(""); // Clear input immediately
 
-    try {
-      const result = await generateContent(inputValue);
+    // If no user, use local state (fallback)
+    if (!user) {
+      const newMessage: Message = { 
+        role: 'user', 
+        content: content,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, newMessage]);
+      setIsLoading(true);
       
-      if (result.error) {
-        if (result.error === "API Key not configured") {
-          toast.error("Falta configurar la API Key de Gemini");
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: "⚠️ Error: No se ha configurado la API Key de Gemini en el servidor.",
-            timestamp: new Date()
-          }]);
-        } else {
-          toast.error("Error al obtener respuesta");
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: "Lo siento, hubo un error al procesar tu solicitud.",
-            timestamp: new Date()
-          }]);
+      try {
+        const result = await generateContent(content);
+        if (result.error) {
+           // ... handle error locally
+           toast.error("Error: " + result.error);
+        } else if (result.text) {
+           setMessages(prev => [...prev, { 
+             role: 'assistant', 
+             content: result.text,
+             timestamp: new Date()
+           }]);
         }
-      } else if (result.text) {
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: result.text,
-          timestamp: new Date()
-        }]);
+      } catch (err) {
+        toast.error("Error de conexión");
+      } finally {
+        setIsLoading(false);
       }
+      return;
+    }
+
+    // With User: Save to Firestore
+    setIsLoading(true);
+    try {
+      // 1. Add User Message
+      await addDoc(collection(db, `users/${user.uid}/messages`), {
+        role: 'user',
+        content: content,
+        timestamp: serverTimestamp()
+      });
+
+      // 2. Call Gemini
+      const result = await generateContent(content);
+
+      // 3. Add Assistant Message
+      if (result.error) {
+        toast.error("Error al obtener respuesta de IA");
+        await addDoc(collection(db, `users/${user.uid}/messages`), {
+          role: 'assistant',
+          content: "⚠️ Error: " + result.error,
+          timestamp: serverTimestamp()
+        });
+      } else if (result.text) {
+        await addDoc(collection(db, `users/${user.uid}/messages`), {
+          role: 'assistant',
+          content: result.text,
+          timestamp: serverTimestamp()
+        });
+      }
+
     } catch (error) {
       console.error(error);
       toast.error("Error de conexión");
