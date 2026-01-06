@@ -499,7 +499,7 @@ export default function ClientsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700">Ubicación</label>
+                <label className="text-sm font-medium text-gray-700">Direccion</label>
                 <input 
                   required
                   type="text" 
