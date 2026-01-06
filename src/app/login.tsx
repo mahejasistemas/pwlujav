@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "../lib/supabase";
+import { auth, googleProvider } from "../lib/firebase";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithPopup } from "firebase/auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function Login() {
@@ -22,6 +23,26 @@ export default function Login() {
     setError(null);
   };
 
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await signInWithPopup(auth, googleProvider);
+      toast.success("Inicio de sesión exitoso", {
+        description: "Bienvenido a Transportes Lujav.",
+      });
+      router.push("/dashboard");
+    } catch (err: any) {
+      console.error(err);
+      setError("Error al iniciar sesión con Google");
+      toast.error("Error de autenticación", {
+        description: err.message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -29,34 +50,33 @@ export default function Login() {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
+        await signInWithEmailAndPassword(auth, email, password);
         toast.success("Inicio de sesión exitoso", {
           description: "Bienvenido a Transportes Lujav.",
         });
         router.push("/dashboard");
       } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: name,
-            },
-          },
-        });
-        if (error) throw error;
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        if (name) {
+          await updateProfile(userCredential.user, {
+            displayName: name,
+          });
+        }
         toast.success("Registro exitoso", {
-          description: "Revisa tu correo para confirmar tu cuenta.",
+          description: "Tu cuenta ha sido creada correctamente.",
         });
+        router.push("/dashboard");
       }
     } catch (err: any) {
-      setError(err.message);
+      console.error(err);
+      let errorMessage = "Ocurrió un error inesperado";
+      if (err.code === 'auth/wrong-password') errorMessage = "Contraseña incorrecta";
+      if (err.code === 'auth/user-not-found') errorMessage = "Usuario no encontrado";
+      if (err.code === 'auth/email-already-in-use') errorMessage = "El correo ya está registrado";
+      
+      setError(errorMessage);
       toast.error("Error de autenticación", {
-        description: err.message,
+        description: errorMessage,
       });
     } finally {
       setLoading(false);
@@ -231,6 +251,7 @@ export default function Login() {
 
           <button
             type="button"
+            onClick={handleGoogleLogin}
             className="w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 text-sm"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24">

@@ -1,27 +1,28 @@
 "use client";
 
-import { useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
-import AIChatBot from "@/components/AIChatBot";
-import { usePathname } from "next/navigation";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
+      {/* Sidebar (Fixed Left) */}
       <Sidebar />
-      <div className="ml-20 flex flex-col min-h-screen transition-all duration-300 ease-in-out">
+      
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Navbar (Top) */}
         <Navbar />
-        <main className="flex-1">
+        
+        {/* Page Content (Scrollable) */}
+        <main className="flex-1 overflow-y-auto bg-gray-50/50">
           {children}
         </main>
       </div>
-      <AIChatBot />
     </div>
   );
 }

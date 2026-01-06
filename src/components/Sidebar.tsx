@@ -1,168 +1,86 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { 
-  LayoutDashboard, 
-  Settings, 
+  Home, 
   Users, 
-  ChevronDown, 
-  ChevronRight, 
-  Truck, 
   FileText, 
-  MapPin,
-  Box,
   LogOut,
-  User,
   Calculator,
-  CreditCard,
-  FilePlus,
-  History,
-  Mail,
-  DollarSign,
-  BarChart,
-  UserCog,
-  Briefcase,
-  Bot
+  Tags,
+  Shield,
+  UserPlus,
+  ArrowUpCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
-
-interface MenuItem {
-  title: string;
-  href?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  submenu?: { title: string; href: string }[];
-}
-
-const menuItems: MenuItem[] = [
-  {
-    title: "Inicio",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Cotizaciones",
-    href: "/dashboard/cotizaciones",
-    icon: FileText,
-  },
-  {
-    title: "Servicios",
-    href: "/dashboard/servicios",
-    icon: Briefcase,
-  },
-  {
-    title: "Clientes",
-    href: "/dashboard/clientes",
-    icon: Users,
-  },
-  {
-    title: "Rutas",
-    href: "/dashboard/rutas",
-    icon: MapPin,
-  },
-  {
-    title: "Correos / Envíos",
-    href: "/dashboard/correos",
-    icon: Mail,
-  },
-  {
-    title: "Tarifario",
-    href: "/dashboard/tarifario",
-    icon: DollarSign,
-  },
-  {
-    title: "IA",
-    href: "/dashboard/ia",
-    icon: Bot,
-  },
-  {
-    title: "Reportes",
-    href: "/dashboard/reportes",
-    icon: BarChart,
-  },
-];
+import { auth } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
+import { useRouter, usePathname } from "next/navigation";
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
-
-  const toggleSubmenu = (title: string) => {
-    setOpenSubmenus((prev) => ({
-      ...prev,
-      [title]: !prev[title],
-    }));
-  };
+  // TODO: Implement actual admin check logic here
+  const isAdmin = true; 
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/");
+    await signOut(auth);
+    router.push("/login");
   };
 
-  const isActive = (href: string) => pathname === href;
-  const isSubmenuActive = (submenu: { title: string; href: string }[]) => 
-    submenu.some(item => pathname === item.href);
-
   return (
-    <aside 
-      className="fixed left-0 top-0 z-40 h-screen w-20 border-r border-gray-200 bg-white"
-    >
-      <div className="flex h-16 items-center justify-center border-b border-gray-200">
-        <span className="text-xl font-bold text-white bg-[#B80000] h-8 w-8 rounded flex items-center justify-center">
-          L
-        </span>
-      </div>
+    <div className="flex h-full">
+      {/* 1. Slim Icon Rail (Leftmost) - Updated to match the dark visual style with labels below */}
+      <div className="w-[72px] bg-red-700 flex flex-col items-center py-4 gap-2 z-20 shrink-0">
+        
+        {/* Main Nav Icons */}
+        <div className="flex flex-col gap-6 w-full items-center">
+          
+          <NavItemRail icon={Home} label="Inicio" active={pathname === "/dashboard"} onClick={() => router.push("/dashboard")} />
+          <NavItemRail icon={Calculator} label="Cotizar" active={pathname.includes("cotizaciones")} onClick={() => router.push("/dashboard/cotizaciones")} />
+          <NavItemRail icon={Users} label="Clientes" active={pathname.includes("clientes")} onClick={() => router.push("/dashboard/clientes")} />
+          <NavItemRail icon={FileText} label="Reportes" active={pathname.includes("reportes")} onClick={() => router.push("/dashboard/reportes")} />
+          <NavItemRail icon={Tags} label="Tarifas" active={pathname.includes("tarifario")} onClick={() => router.push("/dashboard/tarifario")} />
+          
+          {isAdmin && (
+             <NavItemRail icon={Shield} label="Usuarios" active={pathname.includes("usuarios")} onClick={() => router.push("/dashboard/usuarios")} className="text-white/90" />
+          )}
 
-      <div className="flex flex-col justify-between h-[calc(100vh-4rem)]">
-        <nav className="flex-1 space-y-1 px-3 py-4 overflow-hidden flex flex-col items-center">
-          {menuItems.map((item) => (
-            <div key={item.title} className="w-full flex justify-center">
-              {item.submenu ? (
-                // Submenus logic simplified for icon-only mode
-                 <div title={item.title}>
-                  <button
-                    onClick={() => toggleSubmenu(item.title)}
-                    className={cn(
-                      "flex items-center justify-center rounded-lg p-3 text-sm font-medium transition-colors hover:bg-gray-100 hover:text-gray-900",
-                      isSubmenuActive(item.submenu) || openSubmenus[item.title]
-                        ? "text-[#B80000] bg-red-50" 
-                        : "text-gray-500"
-                    )}
-                  >
-                     <item.icon className="h-5 w-5" />
-                  </button>
-                 </div>
-              ) : (
-                <Link
-                  href={item.href!}
-                  title={item.title}
-                  className={cn(
-                    "flex items-center justify-center rounded-lg p-3 text-sm font-medium transition-colors hover:bg-gray-100 hover:text-gray-900",
-                    isActive(item.href!)
-                      ? "bg-[#B80000] text-white"
-                      : "text-gray-500"
-                  )}
-                >
-                  <item.icon className="h-5 w-5" />
-                </Link>
-              )}
-            </div>
-          ))}
-        </nav>
+        </div>
 
-        <div className="border-t border-gray-200 p-4 flex justify-center">
-          <button
+        {/* Bottom Actions */}
+        <div className="mt-auto flex flex-col gap-4 w-full items-center mb-2">
+          <div 
             onClick={handleLogout}
-            title="Cerrar sesión"
-            className="flex items-center justify-center rounded-lg p-3 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/80 cursor-pointer hover:bg-white hover:text-red-700 transition-all mt-2"
+            title="Cerrar Sesión"
           >
-            <LogOut className="h-5 w-5" />
-          </button>
+            <LogOut className="h-4 w-4" />
+          </div>
         </div>
       </div>
-    </aside>
+    </div>
+  );
+}
+
+function NavItemRail({ icon: Icon, label, active, className, onClick }: { icon: any, label: string, active?: boolean, className?: string, onClick?: () => void }) {
+  return (
+    <div 
+      className="flex flex-col items-center gap-2 cursor-pointer group"
+      onClick={onClick}
+    >
+      <div className={cn(
+        "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+        active ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white",
+        className
+      )}>
+        <Icon className="h-6 w-6" />
+      </div>
+      <span className={cn(
+        "text-[10px] font-medium",
+        active ? "text-white" : "text-white/60 group-hover:text-white"
+      )}>
+        {label}
+      </span>
+    </div>
   );
 }

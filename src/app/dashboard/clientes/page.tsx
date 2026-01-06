@@ -1,397 +1,565 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
 import { 
   Search, 
   Plus, 
-  MoreHorizontal, 
-  Building2, 
-  User, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Loader2,
-  Trash2,
-  Edit2,
-  ChevronDown,
-  Layout,
-  Zap,
-  Table as TableIcon,
+  MoreHorizontal,
   ArrowUpDown,
-  Lock,
-  Star
+  User,
+  Building2,
+  ChevronDown,
+  X,
+  FileText,
+  Calculator,
+  Calendar,
+  MapPin,
+  CheckCircle2,
+  AlertCircle,
+  Clock
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, onSnapshot, updateDoc, doc, query, orderBy } from "firebase/firestore";
 import { toast } from "sonner";
-import ClientesSidebar from "@/components/ClientesSidebar";
 
-type Cliente = {
+interface Client {
   id: string;
-  created_at?: string;
-  nombre_empresa: string;
-  contacto: string;
-  correo: string;
-  telefono: string;
-  direccion?: string;
-};
+  name: string;
+  company: string;
+  date: string;
+  location: string;
+  status: "completado" | "en_proceso" | "sin_exito";
+  serviceType: string;
+  quotesCount: number;
+  reports: { id: number; title: string; date: string }[];
+}
 
-export default function ClientesPage() {
-  const [clientes, setClientes] = useState<Cliente[]>([]);
+export default function ClientsPage() {
+  // Clients state
+  const [clients, setClients] = useState<Client[]>([]);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Load clients from Firebase Realtime
+  useEffect(() => {
+    const q = query(collection(db, "clients"), orderBy("date", "desc"));
+    
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const clientsData: Client[] = [];
+      querySnapshot.forEach((doc) => {
+        clientsData.push({ id: doc.id, ...doc.data() } as Client);
+      });
+      setClients(clientsData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching clients:", error);
+      toast.error("No se pudo conectar. Asegúrate de crear la base de datos en Firebase Console.");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
   
-  // Form state
-  const [formData, setFormData] = useState({
-    nombre_empresa: "",
-    contacto: "",
-    correo: "",
-    telefono: "",
-    direccion: ""
+  // Create Client State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newClientData, setNewClientData] = useState({
+    name: "",
+    company: "",
+    location: "",
+    serviceType: "",
+    status: "en_proceso" as "completado" | "en_proceso" | "sin_exito"
   });
 
-  useEffect(() => {
-    fetchClientes();
-  }, []);
-
-  const fetchClientes = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('clientes')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching clients:', error);
-      } else {
-        setClientes(data || []);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-
+    
     try {
-      const { data, error } = await supabase
-        .from('clientes')
-        .insert([formData])
-        .select();
-
-      if (error) throw error;
-
-      toast.success("Cliente agregado correctamente");
-      setIsModalOpen(false);
-      setFormData({
-        nombre_empresa: "",
-        contacto: "",
-        correo: "",
-        telefono: "",
-        direccion: ""
+      const newClient = {
+        name: newClientData.name,
+        company: newClientData.company,
+        date: new Date().toLocaleDateString(),
+        location: newClientData.location,
+        status: newClientData.status,
+        serviceType: newClientData.serviceType,
+        quotesCount: 0,
+        reports: []
+      };
+      
+      await addDoc(collection(db, "clients"), newClient);
+      
+      setIsCreateModalOpen(false);
+      // Reset form
+      setNewClientData({
+        name: "",
+        company: "",
+        location: "",
+        serviceType: "",
+        status: "en_proceso"
       });
-      fetchClientes();
+      toast.success("Cliente creado exitosamente");
     } catch (error) {
-      console.error('Error adding client:', error);
-      toast.error("Error al agregar cliente");
-    } finally {
-      setIsSubmitting(false);
+      console.error("Error creating client:", error);
+      toast.error("Error al crear el cliente");
     }
   };
 
-  const filteredClientes = clientes.filter(cliente => 
-    cliente.nombre_empresa.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cliente.contacto.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cliente.correo.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const updateClientStatus = async (clientId: string, newStatus: Client['status']) => {
+    try {
+      const clientRef = doc(db, "clients", clientId);
+      await updateDoc(clientRef, {
+        status: newStatus
+      });
+      toast.success("Estado actualizado");
+    } catch (error) {
+      console.error("Error updating status:", error);
+      toast.error("Error al actualizar el estado");
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "completado": return "bg-green-100 text-green-700 border-green-200";
+      case "en_proceso": return "bg-amber-100 text-amber-700 border-amber-200";
+      case "sin_exito": return "bg-red-100 text-red-700 border-red-200";
+      default: return "bg-gray-100 text-gray-700 border-gray-200";
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "completado": return <CheckCircle2 className="h-3 w-3" />;
+      case "en_proceso": return <Clock className="h-3 w-3" />;
+      case "sin_exito": return <AlertCircle className="h-3 w-3" />;
+      default: return null;
+    }
+  };
+
+  // Calculate stats
+  const totalClients = clients.length;
+  const activeClients = clients.filter(c => c.status === "en_proceso").length;
+  // Simple check for "new" clients (registered this month)
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  const newClients = clients.filter(c => {
+    const [day, month, year] = c.date.split('/').map(Number);
+    // Assuming format dd/mm/yyyy or similar where parts are predictable enough for this demo
+    // If date parsing fails, we ignore it
+    if (!month || !year) return false;
+    return (month - 1) === currentMonth && year === currentYear;
+  }).length;
 
   return (
-    <div className="flex h-full bg-white">
-      {/* Sidebar Secundario */}
-      <ClientesSidebar onNewClient={() => setIsModalOpen(true)} />
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col h-full bg-white text-slate-900 overflow-hidden">
-        {/* Top Header */}
-        <div className="flex items-center justify-between px-8 py-6 border-b border-gray-100 flex-shrink-0">
-        <h1 className="text-xl font-semibold text-slate-800">Todos los clientes</h1>
-        <Button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-black hover:bg-slate-800 text-white gap-2 rounded-md h-9 px-4 text-sm font-medium"
+    <div className="p-8 max-w-[1600px] mx-auto bg-white min-h-screen font-sans relative">
+      
+      {/* 1. Header Section */}
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-xl font-bold text-gray-900">Todos los Clientes</h1>
+        <button 
+          onClick={() => setIsCreateModalOpen(true)}
+          className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors flex items-center gap-2"
         >
-          Nuevo cliente
-          <ChevronDown className="h-4 w-4" />
-        </Button>
+          Nuevo Cliente
+          <Plus className="h-4 w-4" />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 py-6">
-        {/* Templates Section */}
-        <div className="mb-8">
-          <h3 className="text-sm font-medium text-slate-500 mb-4">Plantillas</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Card 1 */}
-            <div className="flex items-start gap-4 p-4 rounded-xl border border-gray-200 hover:shadow-md transition-shadow cursor-pointer bg-white group">
-              <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 group-hover:scale-105 transition-transform">
-                <Layout className="h-5 w-5" />
+      {/* 2. Stats Overview Section */}
+      <div className="mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Card 1: Total Clientes */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                <User className="h-5 w-5" />
               </div>
-              <div>
-                <h4 className="font-medium text-slate-800">Registro simple</h4>
-                <p className="text-sm text-slate-500 mt-1">Gestiona datos básicos.</p>
-              </div>
+              <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
+                100%
+              </span>
             </div>
-
-            {/* Card 2 */}
-            <div className="flex items-start gap-4 p-4 rounded-xl border border-gray-200 hover:shadow-md transition-shadow cursor-pointer bg-white group">
-              <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600 group-hover:scale-105 transition-transform">
-                <Zap className="h-5 w-5" />
-              </div>
-              <div>
-                <h4 className="font-medium text-slate-800">Análisis con IA</h4>
-                <p className="text-sm text-slate-500 mt-1">Insights de actividad.</p>
-              </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Total de Clientes</p>
+              <h3 className="text-2xl font-bold text-gray-900 mt-1">{totalClients}</h3>
+              <p className="text-xs text-gray-400 mt-1">Base de datos activa</p>
             </div>
+          </div>
 
-            {/* Card 3 */}
-            <div className="flex items-start gap-4 p-4 rounded-xl border border-gray-200 hover:shadow-md transition-shadow cursor-pointer bg-white group">
-              <div className="h-10 w-10 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:scale-105 transition-transform">
-                <TableIcon className="h-5 w-5" />
+          {/* Card 2: Clientes Nuevos */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
+                <Plus className="h-5 w-5" />
               </div>
-              <div>
-                <h4 className="font-medium text-slate-800">Gestión de proyectos</h4>
-                <p className="text-sm text-slate-500 mt-1">Seguimiento detallado.</p>
+              <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
+                Este mes
+              </span>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Clientes Nuevos</p>
+              <h3 className="text-2xl font-bold text-gray-900 mt-1">{newClients}</h3>
+              <p className="text-xs text-gray-400 mt-1">Registrados este mes</p>
+            </div>
+          </div>
+
+          {/* Card 3: Clientes Activos */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center text-green-600">
+                <Building2 className="h-5 w-5" />
               </div>
+              <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
+                En Proceso
+              </span>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Clientes Activos</p>
+              <h3 className="text-2xl font-bold text-gray-900 mt-1">{activeClients}</h3>
+              <p className="text-xs text-gray-400 mt-1">Con envíos recientes</p>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Toolbar */}
-        <div className="flex items-center justify-between mb-4">
-          <Button variant="outline" className="h-8 gap-2 text-slate-600 border-gray-200 hover:bg-gray-50">
-            <ArrowUpDown className="h-3.5 w-3.5" />
-            Ordenar
-          </Button>
-          
-          <div className="relative w-64">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input 
-              placeholder="Buscar" 
-              className="pl-4 pr-10 h-9 border-none focus-visible:ring-0 text-right placeholder:text-gray-400"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+      {/* 3. Toolbar Section */}
+      <div className="flex items-center justify-between mb-4">
+        <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-full text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+          <ArrowUpDown className="h-3.5 w-3.5" />
+          Ordenar
+        </button>
+        <div className="flex items-center gap-2 text-gray-400 hover:text-gray-600 cursor-pointer group">
+          <Search className="h-4 w-4 group-hover:text-gray-600" />
+          <span className="text-sm">Buscar</span>
         </div>
+      </div>
 
-        {/* Table */}
-        <div className="rounded-lg border border-gray-100">
-          <table className="w-full text-sm text-left">
-            <thead>
-              <tr className="border-b border-gray-100 text-xs text-gray-500 font-medium">
-                <th className="py-3 pr-4 pl-2 w-8">
-                  <div className="h-4 w-4 border border-gray-300 rounded mx-auto"></div>
-                </th>
-                <th className="py-3 px-4 font-normal">Nombre</th>
-                <th className="py-3 px-4 font-normal">Ubicación</th>
-                <th className="py-3 px-4 font-normal flex items-center gap-1 cursor-pointer hover:bg-gray-50 rounded">
-                  Fecha de registro <ArrowUpDown className="h-3 w-3 opacity-50" />
-                </th>
-                <th className="py-3 px-4 font-normal">Contacto</th>
-                <th className="py-3 px-4 font-normal">Propietario</th>
-                <th className="py-3 px-4 w-10"></th>
+      {/* 4. Minimal Table */}
+      <div className="w-full">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="py-3 pr-4 text-xs font-semibold text-gray-500 w-1/4 pl-1">Nombre / Empresa</th>
+              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-1/6">
+                 <div className="flex items-center gap-1 cursor-pointer hover:text-gray-700">
+                  Fecha <ArrowUpDown className="h-3 w-3" />
+                </div>
+              </th>
+              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-1/6">Ubicación</th>
+              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-1/6">Tipo de Servicio</th>
+              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-1/6 text-center">Estado</th>
+              <th className="py-3 pl-4 text-xs font-semibold text-gray-500 w-10 text-right pr-2">
+                <Plus className="h-4 w-4 ml-auto cursor-pointer hover:text-gray-700" />
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="py-12 text-center text-gray-400 text-sm">
+                  Cargando clientes...
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" />
+            ) : clients.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="py-12 text-center text-gray-400 text-sm">
+                  No hay clientes registrados. Haz clic en "Nuevo Cliente" para empezar.
+                </td>
+              </tr>
+            ) : (
+              clients.map((client) => (
+                <tr 
+                  key={client.id} 
+                  className="group hover:bg-gray-50/50 transition-colors cursor-pointer"
+                  onClick={() => setSelectedClient(client)}
+                >
+                  <td className="py-3 pr-4 pl-1">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-gray-500 font-bold text-xs">
+                        {client.company.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900 group-hover:underline">
+                          {client.name}
+                        </div>
+                        <div className="text-xs text-gray-500">{client.company}</div>
+                      </div>
+                    </div>
                   </td>
-                </tr>
-              ) : filteredClientes.map((cliente) => (
-                <tr key={cliente.id} className="group hover:bg-gray-50/50 transition-colors">
-                  <td className="py-3 pr-4 pl-2 text-center">
-                    <div className="h-4 w-4 border border-gray-200 rounded mx-auto group-hover:border-gray-400 transition-colors"></div>
+                  <td className="py-3 px-4 text-sm text-gray-500">{client.date}</td>
+                  <td className="py-3 px-4 text-sm text-gray-500">{client.location}</td>
+                  <td className="py-3 px-4">
+                    <span className="text-xs font-medium px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
+                      {client.serviceType}
+                    </span>
                   </td>
                   <td className="py-3 px-4">
-                    <div className="flex items-center gap-2">
-                      <div className="h-6 w-6 rounded bg-purple-600 flex items-center justify-center text-[10px] text-white font-bold">
-                        <TableIcon className="h-3.5 w-3.5" />
-                      </div>
-                      <span className="text-slate-700 font-medium">{cliente.nombre_empresa}</span>
-                      <Lock className="h-3 w-3 text-gray-400 ml-1" />
+                    <div 
+                      className="flex justify-center" 
+                      onClick={(e) => e.stopPropagation()} // Prevent row click when changing status
+                    >
+                      <Select 
+                        defaultValue={client.status}
+                        onValueChange={(value) => {
+                          updateClientStatus(client.id, value as Client['status']);
+                        }}
+                      >
+                        <SelectTrigger className={`h-7 text-xs w-[130px] rounded-full ${getStatusColor(client.status)}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="completado">Completado</SelectItem>
+                          <SelectItem value="en_proceso">En Proceso</SelectItem>
+                          <SelectItem value="sin_exito">Sin Éxito</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </td>
-                  <td className="py-3 px-4 text-gray-500">
-                    {cliente.direccion ? (
-                       <span className="truncate max-w-[150px] block" title={cliente.direccion}>{cliente.direccion}</span>
-                    ) : (
-                      <span className="text-gray-300">-</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-gray-500">
-                    {new Date(cliente.created_at || Date.now()).toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })}
-                  </td>
-                  <td className="py-3 px-4 text-gray-500">
-                    <div className="flex flex-col">
-                      <span className="text-slate-700">{cliente.contacto}</span>
-                      <span className="text-xs text-gray-400">{cliente.telefono}</span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="flex items-center">
-                      <div className="h-6 w-6 rounded-full bg-black text-white flex items-center justify-center text-xs font-medium ring-2 ring-white">
-                        L
-                      </div>
-                      <div className="h-6 w-6 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-medium ring-2 ring-white -ml-2">
-                        +
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-600">
+                  <td className="py-3 pl-4 text-right pr-2">
+                    <button className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors">
                       <MoreHorizontal className="h-4 w-4" />
-                    </Button>
+                    </button>
                   </td>
                 </tr>
-              ))}
-              
-              {filteredClientes.length === 0 && !loading && (
-                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-gray-400 text-sm">
-                    No hay clientes registrados
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {/* Add Client Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 m-4 animate-in zoom-in-95 border border-gray-100">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-semibold text-slate-800">Agregar Cliente</h2>
-              <Button  
-                variant="ghost" 
-                size="icon" 
-                onClick={() => setIsModalOpen(false)}
-                className="h-8 w-8 rounded-full hover:bg-gray-100"
+      {/* 5. Client Details Modal (Right Drawer style) */}
+      {selectedClient && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity"
+            onClick={() => setSelectedClient(null)}
+          />
+          
+          {/* Drawer Content */}
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl p-6 overflow-y-auto animate-in slide-in-from-right duration-300">
+            <button 
+              onClick={() => setSelectedClient(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="mt-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xl shadow-inner">
+                  {selectedClient.company.substring(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">{selectedClient.name}</h2>
+                  <p className="text-sm text-gray-500">{selectedClient.company}</p>
+                </div>
+              </div>
+
+              {/* Quick Stats Grid */}
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                  <div className="flex items-center gap-2 text-blue-700 mb-2">
+                    <Calculator className="h-4 w-4" />
+                    <span className="text-xs font-bold uppercase tracking-wide">Cotizaciones</span>
+                  </div>
+                  <div className="text-2xl font-bold text-blue-900">{selectedClient.quotesCount}</div>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
+                  <div className="flex items-center gap-2 text-purple-700 mb-2">
+                    <FileText className="h-4 w-4" />
+                    <span className="text-xs font-bold uppercase tracking-wide">Reportes</span>
+                  </div>
+                  <div className="text-2xl font-bold text-purple-900">{selectedClient.reports.length}</div>
+                </div>
+              </div>
+
+              {/* Info Details */}
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <User className="h-4 w-4 text-gray-400" />
+                    Información General
+                  </h3>
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Ubicación</span>
+                      <span className="font-medium text-gray-900 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" /> {selectedClient.location}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Fecha de Registro</span>
+                      <span className="font-medium text-gray-900 flex items-center gap-1">
+                        <Calendar className="h-3 w-3" /> {selectedClient.date}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Tipo de Servicio</span>
+                      <span className="font-medium text-gray-900">{selectedClient.serviceType}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Estado Actual</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(selectedClient.status)}`}>
+                        {selectedClient.status.replace("_", " ")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Reports List */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-gray-400" />
+                    Historial de Reportes
+                  </h3>
+                  <div className="space-y-2">
+                    {selectedClient.reports.length > 0 ? (
+                      selectedClient.reports.map((report) => (
+                        <div key={report.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all cursor-pointer group">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center text-gray-400 group-hover:text-gray-600">
+                              <FileText className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{report.title}</div>
+                              <div className="text-xs text-gray-500">{report.date}</div>
+                            </div>
+                          </div>
+                          <ChevronDown className="h-4 w-4 text-gray-300 -rotate-90" />
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-gray-400 italic text-center py-4">No hay reportes disponibles</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 flex gap-3">
+                <button className="flex-1 bg-black text-white py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors">
+                  Nueva Cotización
+                </button>
+                <button className="flex-1 border border-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                  Editar Cliente
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Create Client Modal */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsCreateModalOpen(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Nuevo Cliente</h2>
+              <button 
+                onClick={() => setIsCreateModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
               >
-                <span className="text-xl text-gray-500">×</span>
-              </Button>
+                <X className="h-5 w-5" />
+              </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="nombre_empresa" className="text-xs font-medium text-gray-500 uppercase">Nombre de la Empresa</Label>
-                <Input 
-                  id="nombre_empresa"
-                  name="nombre_empresa"
-                  required
-                  placeholder="Ej. Logística Global S.A. de C.V." 
-                  className="h-10 bg-gray-50 border-gray-200 focus-visible:ring-black"
-                  value={formData.nombre_empresa}
-                  onChange={handleInputChange}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="contacto" className="text-xs font-medium text-gray-500 uppercase">Contacto Principal</Label>
-                  <Input 
-                    id="contacto"
-                    name="contacto"
+            <form onSubmit={handleCreateClient} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Nombre del Contacto</label>
+                  <input 
                     required
-                    placeholder="Nombre completo" 
-                    className="h-10 bg-gray-50 border-gray-200 focus-visible:ring-black"
-                    value={formData.contacto}
-                    onChange={handleInputChange}
+                    type="text" 
+                    value={newClientData.name}
+                    onChange={(e) => setNewClientData({...newClientData, name: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                    placeholder="Ej. Juan Pérez"
                   />
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="telefono" className="text-xs font-medium text-gray-500 uppercase">Teléfono</Label>
-                  <Input 
-                    id="telefono"
-                    name="telefono"
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Empresa</label>
+                  <input 
                     required
-                    placeholder="(55) 1234 5678" 
-                    className="h-10 bg-gray-50 border-gray-200 focus-visible:ring-black"
-                    value={formData.telefono}
-                    onChange={handleInputChange}
+                    type="text" 
+                    value={newClientData.company}
+                    onChange={(e) => setNewClientData({...newClientData, company: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                    placeholder="Ej. Transportes SAC"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="correo" className="text-xs font-medium text-gray-500 uppercase">Correo Electrónico</Label>
-                <Input 
-                  id="correo"
-                  name="correo"
-                  type="email"
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-gray-700">Ubicación</label>
+                <input 
                   required
-                  placeholder="contacto@empresa.com" 
-                  className="h-10 bg-gray-50 border-gray-200 focus-visible:ring-black"
-                  value={formData.correo}
-                  onChange={handleInputChange}
+                  type="text" 
+                  value={newClientData.location}
+                  onChange={(e) => setNewClientData({...newClientData, location: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                  placeholder="Ej. Lima, Perú"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="direccion" className="text-xs font-medium text-gray-500 uppercase">Dirección Fiscal / Operativa</Label>
-                <Input 
-                  id="direccion"
-                  name="direccion"
-                  placeholder="Calle, Número, Colonia, CP, Ciudad" 
-                  className="h-10 bg-gray-50 border-gray-200 focus-visible:ring-black"
-                  value={formData.direccion}
-                  onChange={handleInputChange}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Tipo de Servicio</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={newClientData.serviceType}
+                    onChange={(e) => setNewClientData({...newClientData, serviceType: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                    placeholder="Ej. Carga Pesada"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Estado Inicial</label>
+                  <Select 
+                    value={newClientData.status}
+                    onValueChange={(value) => setNewClientData({...newClientData, status: value as any})}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en_proceso">En Proceso</SelectItem>
+                      <SelectItem value="completado">Completado</SelectItem>
+                      <SelectItem value="sin_exito">Sin Éxito</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-100">
-                <Button 
-                  type="button" 
-                  variant="ghost" 
-                  onClick={() => setIsModalOpen(false)}
-                  disabled={isSubmitting}
-                  className="text-gray-500 hover:text-gray-700"
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
                 >
                   Cancelar
-                </Button>
-                <Button 
-                  type="submit" 
-                  className="bg-black hover:bg-slate-800 text-white min-w-[120px]"
-                  disabled={isSubmitting}
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
                 >
-                  {isSubmitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    "Guardar"
-                  )}
-                </Button>
+                  Crear Cliente
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
     </div>
   );
 }
