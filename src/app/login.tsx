@@ -4,8 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { auth, googleProvider } from "../lib/firebase";
+import { auth, googleProvider, db } from "../lib/firebase";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithPopup } from "firebase/auth";
+import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function Login() {
@@ -27,7 +28,32 @@ export default function Login() {
     setLoading(true);
     setError(null);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+
+      // Check if user exists in Firestore
+      const userDocRef = doc(db, "users", user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (!userDoc.exists()) {
+        // Create new user doc
+        await setDoc(userDocRef, {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          photoURL: user.photoURL,
+          role: "user", // Default role
+          status: "active",
+          createdAt: serverTimestamp(),
+          lastLogin: serverTimestamp()
+        });
+      } else {
+        // Update last login
+        await setDoc(userDocRef, {
+          lastLogin: serverTimestamp()
+        }, { merge: true });
+      }
+
       toast.success("Inicio de sesión exitoso", {
         description: "Bienvenido a Transportes Lujav.",
       });
@@ -50,18 +76,54 @@ export default function Login() {
 
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        
+        // Update last login or create if missing (for legacy users)
+        const userDocRef = doc(db, "users", user.uid);
+        const userDoc = await getDoc(userDocRef);
+        
+        if (!userDoc.exists()) {
+           await setDoc(userDocRef, {
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName || name || "Usuario",
+            role: "user",
+            status: "active",
+            createdAt: serverTimestamp(),
+            lastLogin: serverTimestamp()
+          });
+        } else {
+          await setDoc(userDocRef, {
+            lastLogin: serverTimestamp()
+          }, { merge: true });
+        }
+
         toast.success("Inicio de sesión exitoso", {
           description: "Bienvenido a Transportes Lujav.",
         });
         router.push("/dashboard");
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        
         if (name) {
-          await updateProfile(userCredential.user, {
+          await updateProfile(user, {
             displayName: name,
           });
         }
+
+        // Create user in Firestore
+        await setDoc(doc(db, "users", user.uid), {
+          uid: user.uid,
+          email: user.email,
+          displayName: name,
+          role: "user",
+          status: "active",
+          createdAt: serverTimestamp(),
+          lastLogin: serverTimestamp()
+        });
+
         toast.success("Registro exitoso", {
           description: "Tu cuenta ha sido creada correctamente.",
         });

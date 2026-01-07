@@ -9,7 +9,8 @@ import {
   Tags,
   Shield,
   UserPlus,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Briefcase
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
@@ -40,6 +41,7 @@ export default function Sidebar() {
           <NavItemRail icon={Users} label="Clientes" active={pathname.includes("clientes")} onClick={() => router.push("/dashboard/clientes")} />
           <NavItemRail icon={FileText} label="Reportes" active={pathname.includes("reportes")} onClick={() => router.push("/dashboard/reportes")} />
           <NavItemRail icon={Tags} label="Tarifas" active={pathname.includes("tarifario")} onClick={() => router.push("/dashboard/tarifario")} />
+          <NavItemRail icon={Briefcase} label="Equipos" active={pathname.includes("equipos")} onClick={() => router.push("/dashboard/equipos")} />
           
           {isAdmin && (
              <NavItemRail icon={Shield} label="Usuarios" active={pathname.includes("usuarios")} onClick={() => router.push("/dashboard/usuarios")} className="text-white/90" />
