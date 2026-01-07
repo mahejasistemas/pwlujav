@@ -168,9 +168,17 @@ export default function AIChatBot({ isOpen, onClose, user }: AIChatBotProps) {
     setIsLoading(false);
   };
 
-  const formatTime = (timestamp: Date | Timestamp) => {
-    const date = timestamp instanceof Timestamp ? timestamp.toDate() : timestamp;
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formatTime = (timestamp: any) => {
+    if (!timestamp) return "";
+    // Handle Firestore Timestamp
+    if (timestamp && typeof timestamp.toDate === 'function') {
+      return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    // Handle JS Date
+    if (timestamp instanceof Date) {
+      return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return "";
   };
 
   if (!isOpen) return null;
