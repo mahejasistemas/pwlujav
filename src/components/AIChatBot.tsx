@@ -168,7 +168,8 @@ export default function AIChatBot({ isOpen, onClose, user }: AIChatBotProps) {
     setIsLoading(false);
   };
 
-  const formatTime = (date: Date) => {
+  const formatTime = (timestamp: Date | Timestamp) => {
+    const date = timestamp instanceof Timestamp ? timestamp.toDate() : timestamp;
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
