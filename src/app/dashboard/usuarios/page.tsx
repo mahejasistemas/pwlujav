@@ -18,7 +18,8 @@ import {
   Phone,
   Pencil,
   Clock,
-  Loader2
+  Loader2,
+  Trash2
 } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, getDoc } from "firebase/firestore";
@@ -206,6 +207,18 @@ export default function UsersPage() {
     } catch (error) {
       console.error("Error updating user:", error);
       toast.error("Error al actualizar usuario");
+    }
+  };
+
+  const handleDeleteUser = async (user: UserData) => {
+    if (!confirm(`¿Estás seguro de eliminar a ${user.displayName}? Esta acción eliminará sus datos de la plataforma.`)) return;
+    
+    try {
+      await deleteDoc(doc(db, "users", user.id));
+      toast.success("Usuario eliminado correctamente");
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      toast.error("Error al eliminar usuario");
     }
   };
 
@@ -431,15 +444,26 @@ export default function UsersPage() {
                       </div>
                     </td>
                     <td className="py-4 px-6 text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => openEditDialog(user)}
-                        className="text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                      >
-                        <Pencil className="h-4 w-4 mr-2" />
-                        Editar Perfil
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => openEditDialog(user)}
+                          className="text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                        >
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Editar
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleDeleteUser(user)}
+                          className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          title="Eliminar usuario"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
