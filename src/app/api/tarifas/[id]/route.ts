@@ -19,8 +19,9 @@ export async function GET(
     if (!db) {
       return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
     }
+    const firestore = db;
     const { id } = await params;
-    const docRef = doc(db, "tarifas", id);
+    const docRef = doc(firestore, "tarifas", id);
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
@@ -41,6 +42,7 @@ export async function PATCH(
     if (!db) {
       return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
     }
+    const firestore = db;
 
     const { id } = await params;
     const body = await request.json();
@@ -66,7 +68,7 @@ export async function PATCH(
         }
     });
 
-    const docRef = doc(db, "tarifas", id);
+    const docRef = doc(firestore, "tarifas", id);
     await updateDoc(docRef, updates);
     
     return NextResponse.json({ message: 'Rate updated successfully' });
@@ -84,8 +86,9 @@ export async function DELETE(
     if (!db) {
       return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
     }
+    const firestore = db;
     const { id } = await params;
-    await deleteDoc(doc(db, "tarifas", id));
+    await deleteDoc(doc(firestore, "tarifas", id));
     return NextResponse.json({ message: 'Rate deleted successfully' });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
