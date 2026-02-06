@@ -3,12 +3,12 @@ import { Pool } from 'pg';
 let pool: Pool;
 
 if (!process.env.DATABASE_URL) {
-  throw new Error('Please define the DATABASE_URL environment variable inside .env.local');
+  console.warn('DATABASE_URL environment variable is missing. Database features will not work.');
 }
 
 if (process.env.NODE_ENV === 'production') {
   pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL || '',
     ssl: true,
   });
 } else {
@@ -16,7 +16,7 @@ if (process.env.NODE_ENV === 'production') {
   // caused by HMR (Hot Module Replacement).
   if (!(global as any).postgresPool) {
     (global as any).postgresPool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: process.env.DATABASE_URL || '',
       ssl: true,
       max: 20, // Set max pool size
       idleTimeoutMillis: 30000,
