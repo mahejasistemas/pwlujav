@@ -24,9 +24,18 @@ export default function Sidebar() {
   const isAdmin = true; 
 
   const handleLogout = async () => {
-    await signOut(auth);
-    router.push("/login");
+    try {
+      if (auth) {
+        await signOut(auth);
+      }
+      router.push("/login");
+    } catch (error) {
+      console.error("Error signing out:", error);
+      router.push("/login");
+    }
   };
+
+  if (!pathname) return null;
 
   return (
     <div className="flex h-full">

@@ -1,0 +1,1790 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { 
+  Search, 
+  Plus, 
+  MoreHorizontal,
+  ArrowUpDown,
+  FileText,
+  Clock,
+  CheckCircle2,
+  X,
+  Upload,
+  LayoutDashboard,
+  Inbox,
+  Archive,
+  Calendar,
+  TrendingUp,
+  Printer,
+  Save,
+  Edit2,
+  Download,
+  MapPin,
+  Search as SearchIcon
+} from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { db, auth } from "@/lib/firebase";
+import { collection, addDoc, onSnapshot, updateDoc, deleteDoc, doc, query, orderBy, getDocs, increment, getDoc } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { toast } from "sonner";
+import * as XLSX from 'xlsx';
+import { generateQuotePDF } from "@/lib/generateQuotePdf";
+import { cn } from "@/lib/utils";
+import { recommendVehicle, VEHICLE_SPECS, VehicleSpec } from "@/lib/vehiclesData";
+
+interface Quote {
+  id: string;
+  clientName: string;
+  projectName: string;
+  date: string;
+  amount: number;
+  discount?: number;
+  subtotal?: number;
+  status: "aprobada" | "pendiente" | "rechazada";
+  validUntil: string;
+  items?: any[]; // To store details from Excel
+}
+
+type FilterType = 'all' | 'pending' | 'approved' | 'rejected';
+
+export default function CotizacionesPage() {
+  // Quotes state
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // CP Search State
+  const [cpQuery, setCpQuery] = useState("");
+  const [cpLoading, setCpLoading] = useState(false);
+  const [cpResult, setCpResult] = useState<{place: string, state: string} | null>(null);
+  
+  // Tariffs State for Manual Quote
+  const [availableTariffs, setAvailableTariffs] = useState<any[]>([]);
+  const [uniqueOrigins, setUniqueOrigins] = useState<string[]>([]);
+  const [uniqueDestinations, setUniqueDestinations] = useState<string[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Vehicles Data (Firestore + Static Fallback)
+  const [availableVehicles, setAvailableVehicles] = useState<VehicleSpec[]>(VEHICLE_SPECS);
+
+  // Cubicaje State
+  const [cubicajeData, setCubicajeData] = useState({
+    largo: "",
+    ancho: "",
+    alto: "",
+    peso: "",
+    cantidad: "1"
+  });
+  const [suggestedVehicle, setSuggestedVehicle] = useState<any>(null);
+  const [isCubicajeOpen, setIsCubicajeOpen] = useState(false);
+  const [isVehiclesConfigOpen, setIsVehiclesConfigOpen] = useState(false); // Modal for CSV upload
+
+  // Load Vehicles from Neon DB (Postgres)
+  useEffect(() => {
+    const fetchVehicles = async () => {
+      try {
+        const response = await fetch('/api/vehicles-neon');
+        if (!response.ok) throw new Error('Failed to fetch vehicles');
+        const data = await response.json();
+        
+        // Helper to parse dimensions (e.g. "16 a 24 m" -> 24)
+        const parseDim = (val: any) => {
+          if (typeof val === 'number') return val;
+          if (!val) return 0;
+          const str = String(val);
+          const matches = str.match(/[\d.]+/g);
+          if (!matches) return 0;
+          const nums = matches.map(n => parseFloat(n)).filter(n => !isNaN(n));
+          return nums.length > 0 ? Math.max(...nums) : 0;
+        };
+
+        // Map Neon DB columns to VehicleSpec interface
+        const vehicles: VehicleSpec[] = data.map((v: any) => ({
+          id: v.servicio?.toLowerCase().replace(/\s+/g, '_') || 'unknown',
+          name: v.servicio || 'Unknown',
+          largo: parseDim(v.largo),
+          ancho: parseDim(v.ancho),
+          alto: parseDim(v.alto),
+          pesoMax: parseFloat(v.peso_reglamentario) || 0,
+          sobrepesoMax: parseFloat(v.sobrepeso) || 0,
+          volumenMax: 0 // Will calculate below
+        }));
+
+        // Calculate volume if missing
+        vehicles.forEach(v => {
+           if (v.volumenMax === 0 && v.largo > 0 && v.ancho > 0 && v.alto > 0) {
+             v.volumenMax = v.largo * v.ancho * v.alto;
+           }
+        });
+        
+        setAvailableVehicles(vehicles);
+      } catch (error) {
+        console.error("Error loading vehicles from Neon:", error);
+        // Fallback to static data if API fails
+        setAvailableVehicles(VEHICLE_SPECS);
+      }
+    };
+    
+    fetchVehicles();
+  }, []);
+
+  const calculateCubicaje = () => {
+    const l = parseFloat(cubicajeData.largo) || 0;
+    const w = parseFloat(cubicajeData.ancho) || 0;
+    const h = parseFloat(cubicajeData.alto) || 0;
+    const weight = parseFloat(cubicajeData.peso) || 0; // Tons per unit
+    const qty = parseInt(cubicajeData.cantidad) || 1;
+
+    if (l === 0 || w === 0 || h === 0 || weight === 0) {
+      toast.error("Ingresa todas las medidas y peso");
+      return;
+    }
+
+    const totalVol = (l * w * h) * qty; // m3 (assuming input in meters)
+    const totalWeightTons = weight * qty; // already in tons
+
+    // Use availableVehicles (dynamic) instead of static VEHICLE_SPECS
+    const recommendation = recommendVehicle(totalWeightTons, totalVol, l, w, h, availableVehicles);
+    
+    if (recommendation) {
+      setSuggestedVehicle(recommendation);
+      toast.success(`Unidad sugerida: ${recommendation.name}`);
+    } else {
+      setSuggestedVehicle(null);
+      toast.error("No se encontró una unidad estándar para esta carga. Requiere validación especial.");
+    }
+  };
+
+  const handleVehiclesFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        if (data.length === 0) {
+          toast.error("El archivo está vacío");
+          return;
+        }
+
+        // Process and save to Firestore
+        // Expected columns: servicio, largo, ancho, alto, peso_reglamentario, sobrepeso
+        let count = 0;
+        const batchPromises = data.map(async (row: any) => {
+           // Basic mapping and validation
+           const name = row['servicio'] || row['Servicio'] || row['Unidad'];
+           if (!name) return;
+
+           const spec: any = {
+             name: name,
+             largo: parseFloat(row['largo'] || row['Largo'] || 0),
+             ancho: parseFloat(row['ancho'] || row['Ancho'] || 0),
+             alto: parseFloat(row['alto'] || row['Alto'] || 0),
+             pesoMax: parseFloat(row['peso_reglamentario'] || row['Peso'] || 0),
+             sobrepesoMax: parseFloat(row['sobrepeso'] || row['Sobrepeso'] || 0),
+           };
+           // Calculate volume if not provided
+           spec.volumenMax = parseFloat(row['volumen'] || row['Volumen'] || (spec.largo * spec.ancho * spec.alto).toFixed(2));
+           
+           // Generate ID from name
+           const id = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+           
+           // Save to Firestore "vehicle_specs"
+           // Using setDoc-like approach with ID or addDoc if we don't care about ID
+           // To avoid duplicates, let's try to query or just add. 
+           // For simplicity in this batch, we'll addDoc. 
+           // Better: Check if exists? Too slow for batch.
+           // Let's use name as ID logic if possible, or just addDoc.
+           await addDoc(collection(db, "vehicle_specs"), spec);
+           count++;
+        });
+
+        await Promise.all(batchPromises);
+        toast.success(`${count} unidades importadas correctamente`);
+        setIsVehiclesConfigOpen(false);
+
+      } catch (error) {
+        console.error("Error reading vehicles file:", error);
+        toast.error("Error al leer el archivo de unidades");
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const applySuggestedVehicle = () => {
+    if (suggestedVehicle) {
+      // Map internal ID to select value
+      let vValue = "";
+      const vId = suggestedVehicle.id.toLowerCase();
+      
+      if (vId.includes("rabon") || vId.includes("torthon") || vId.includes("torto")) vValue = "rabon";
+      else if (vId.includes("sencillo") || vId.includes("caja_48") || vId.includes("caja_53")) vValue = "sencillo";
+      else if (vId.includes("full")) vValue = "full";
+      else vValue = "rabon"; // Default fallback
+
+      setNewQuoteData(prev => {
+        const newData = {...prev, selectedVehicle: vValue};
+        
+        // Try to find price if origin and destination are set
+        if (prev.selectedOrigin && prev.selectedDestination) {
+          const tariff = availableTariffs.find(t => 
+            t.origen === prev.selectedOrigin && 
+            t.destino === prev.selectedDestination
+          );
+          
+          if (tariff) {
+            let price = 0;
+            if (vValue === 'rabon') price = tariff.rabon || 0;
+            else if (vValue === 'sencillo') price = tariff.sencillo || 0;
+            else if (vValue === 'full') price = tariff.full || 0;
+            
+            if (price > 0) {
+              newData.amount = price.toString();
+              toast.success(`Precio actualizado: $${price}`);
+            }
+          }
+        }
+        return newData;
+      });
+      
+      setIsCubicajeOpen(false);
+      toast.success("Unidad aplicada a la cotización");
+    }
+  };
+
+  // Check Admin Role
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists() && userDoc.data().role === 'admin') {
+            setIsAdmin(true);
+          } else {
+            setIsAdmin(false);
+          }
+        } catch (error) {
+          console.error("Error checking admin role:", error);
+          setIsAdmin(false);
+        }
+      } else {
+        setIsAdmin(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Load quotes from Firebase Realtime
+  useEffect(() => {
+    if (!db) {
+      console.error("Firebase DB not initialized");
+      toast.error("Error de conexión con la base de datos");
+      setLoading(false);
+      return;
+    }
+
+    const q = query(collection(db, "quotes"), orderBy("date", "desc"));
+    
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const quotesData: Quote[] = [];
+      querySnapshot.forEach((doc) => {
+        quotesData.push({ id: doc.id, ...doc.data() } as Quote);
+      });
+      setQuotes(quotesData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching quotes:", error);
+      toast.error("No se pudo cargar las cotizaciones.");
+      setLoading(false);
+    });
+
+    // Load Tariffs for selector (From MongoDB API)
+    const fetchTariffs = async () => {
+      try {
+        const response = await fetch('/api/tarifas');
+        if (!response.ok) throw new Error('Failed to fetch tariffs');
+        const tariffsData = await response.json();
+        setAvailableTariffs(tariffsData);
+        
+        // Extract unique origins - User requested specific list
+        setUniqueOrigins(["Altamira", "Manzanillo", "Veracruz"]);
+      } catch (error) {
+        console.error("Error loading tariffs:", error);
+      }
+    };
+    fetchTariffs();
+
+    return () => unsubscribe();
+  }, []);
+  
+  // Create Quote State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newQuoteData, setNewQuoteData] = useState({
+    clientName: "",
+    projectName: "",
+    amount: "",
+    discount: "",
+    status: "pendiente" as "aprobada" | "pendiente" | "rechazada",
+    validUntil: "",
+    items: [] as any[],
+    selectedOrigin: "",
+    selectedDestination: "",
+    selectedVehicle: ""
+  });
+
+  // Update destinations when origin changes
+  useEffect(() => {
+    let dests: string[] = [];
+
+    if (newQuoteData.selectedOrigin) {
+      const tariffDests = availableTariffs
+        .filter(t => normalizeText(t.origen || t.origin).includes(normalizeText(newQuoteData.selectedOrigin)))
+        .map(t => t.destino || t.destination)
+        .filter(Boolean);
+      dests = Array.from(new Set(tariffDests)).sort() as string[];
+    }
+    
+    // Preserve selected destination if it exists (for manual/custom entries)
+    if (newQuoteData.selectedDestination) {
+       // Ensure it's in the list even if not in tariffs
+       if (!dests.includes(newQuoteData.selectedDestination)) {
+         dests = [newQuoteData.selectedDestination, ...dests];
+       }
+    }
+
+    // Only update if array content is actually different to prevent render loops/flashing
+    setUniqueDestinations(prev => {
+      if (JSON.stringify(prev) === JSON.stringify(dests)) return prev;
+      return dests;
+    });
+  }, [newQuoteData.selectedOrigin, availableTariffs, newQuoteData.selectedDestination]);
+
+  // Calculate price when selection changes
+  useEffect(() => {
+    if (newQuoteData.selectedOrigin && newQuoteData.selectedDestination && newQuoteData.selectedVehicle) {
+      // Normalize selections
+      const selOrigin = normalizeText(newQuoteData.selectedOrigin);
+      const selDest = normalizeText(newQuoteData.selectedDestination);
+
+      const tariff = availableTariffs.find(t => {
+        const tOrigin = normalizeText(t.origen || t.origin);
+        const tDest = normalizeText(t.destino || t.destination);
+        
+        // Flexible matching: Check if one includes the other (bidirectional)
+        // This handles cases like "Veracruz" matching "Veracruz, Ver" or "Estado de México" matching "Mexico"
+        const originMatch = tOrigin.includes(selOrigin) || selOrigin.includes(tOrigin);
+        const destMatch = tDest.includes(selDest) || selDest.includes(tDest);
+        
+        return originMatch && destMatch;
+      });
+      
+      if (tariff) {
+        let price = 0;
+        const v = newQuoteData.selectedVehicle;
+        
+        if (v === 'rabon') price = parseFloat(tariff.rabon || 0);
+        else if (v === 'sencillo') price = parseFloat(tariff.sencillo || 0);
+        else if (v === 'sencillo_sobrepeso') price = parseFloat(tariff.sencillo_sobrepeso || 0);
+        else if (v === 'full') price = parseFloat(tariff.full || 0);
+        else if (v === 'full_sobrepeso') price = parseFloat(tariff.full_sobrepeso || 0);
+        
+        if (price > 0) {
+           setNewQuoteData(prev => ({
+             ...prev, 
+             amount: price.toString(),
+             // Add single item to items array for tracking
+             items: [{
+               origin: newQuoteData.selectedOrigin,
+               destination: newQuoteData.selectedDestination,
+               vehicle: newQuoteData.selectedVehicle,
+               price: price,
+               tariffId: tariff.id
+             }]
+           }));
+           // Optional: Toast to confirm price found
+           // toast.success(`Precio encontrado: $${price}`);
+        }
+      }
+    }
+  }, [newQuoteData.selectedOrigin, newQuoteData.selectedDestination, newQuoteData.selectedVehicle, availableTariffs]);
+
+  const handleCreateQuote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!db) {
+      toast.error("Base de datos no disponible");
+      return;
+    }
+
+    try {
+      const newQuote = {
+        clientName: newQuoteData.clientName,
+        projectName: newQuoteData.projectName,
+        date: new Date().toLocaleDateString(),
+        amount: parseFloat(newQuoteData.amount) || 0,
+        subtotal: parseFloat(newQuoteData.amount) || 0, // Initial subtotal same as amount
+        discount: 0,
+        status: "pendiente",
+        validUntil: newQuoteData.validUntil || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toLocaleDateString(), // Default 15 days
+        items: newQuoteData.items || []
+      };
+      
+      const docRef = await addDoc(collection(db, "quotes"), newQuote);
+      
+      // Update tariff usage counts
+      if (newQuoteData.items && newQuoteData.items.length > 0) {
+        newQuoteData.items.forEach((item: any) => {
+          if (item.tariffId) {
+            // Update usage count via API
+            fetch(`/api/tarifas/${item.tariffId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ incrementUsage: true })
+            }).catch(console.error);
+          }
+        });
+      }
+
+      setIsCreateModalOpen(false);
+      
+      // Open the created quote in Document View immediately
+      setSelectedQuote({
+        id: docRef.id,
+        ...newQuote
+      });
+
+      // Reset form
+      setNewQuoteData({
+        clientName: "",
+        projectName: "",
+        amount: "",
+        discount: "",
+        status: "pendiente",
+        validUntil: "",
+        items: [],
+        selectedOrigin: "",
+        selectedDestination: "",
+        selectedVehicle: ""
+      });
+      toast.success("Cotización creada exitosamente");
+    } catch (error) {
+      console.error("Error creating quote:", error);
+      toast.error("Error al crear la cotización");
+    }
+  };
+
+  const updateQuoteStatus = async (quoteId: string, newStatus: Quote['status']) => {
+    if (!db) {
+      toast.error("Base de datos no disponible");
+      return;
+    }
+
+    try {
+      const quoteRef = doc(db, "quotes", quoteId);
+      await updateDoc(quoteRef, {
+        status: newStatus
+      });
+      toast.success("Estado actualizado");
+    } catch (error) {
+      console.error("Error updating status:", error);
+      toast.error("Error al actualizar el estado");
+    }
+  };
+
+  const handleDeleteQuote = async (quoteId: string) => {
+    if (!isAdmin) {
+      toast.error("Solo los administradores pueden eliminar cotizaciones");
+      return;
+    }
+    
+    if (!confirm("¿Estás seguro de que deseas eliminar esta cotización? Esta acción no se puede deshacer.")) return;
+
+    try {
+      await deleteDoc(doc(db, "quotes", quoteId));
+      toast.success("Cotización eliminada correctamente");
+    } catch (error) {
+      console.error("Error deleting quote:", error);
+      toast.error("Error al eliminar la cotización");
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "aprobada": return "bg-green-100 text-green-700 border-green-200";
+      case "pendiente": return "bg-amber-100 text-amber-700 border-amber-200";
+      case "rechazada": return "bg-red-100 text-red-700 border-red-200";
+      default: return "bg-gray-100 text-gray-700 border-gray-200";
+    }
+  };
+
+  const [editingQuote, setEditingQuote] = useState<Partial<Quote>>({});
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Update editing state when selectedQuote changes
+  useEffect(() => {
+    if (selectedQuote) {
+      setEditingQuote({
+        amount: selectedQuote.amount,
+        discount: selectedQuote.discount || 0,
+        subtotal: selectedQuote.subtotal || selectedQuote.amount
+      });
+      setIsEditing(false);
+    }
+  }, [selectedQuote]);
+
+  const handleSaveQuoteChanges = async () => {
+    if (!selectedQuote || !db) return;
+    
+    try {
+      const quoteRef = doc(db, "quotes", selectedQuote.id);
+      
+      // Calculate final amount based on subtotal and discount
+      // Or trust the user's manual override if they edited 'amount' directly
+      // Here we assume:
+      // If user edits discount -> update amount = subtotal - discount
+      // If user edits amount -> update discount = subtotal - amount (reverse calc) or just save amount
+      
+      // Let's go with: User edits Discount and Amount independently for max flexibility, 
+      // but UI should try to keep them consistent.
+      
+      await updateDoc(quoteRef, {
+        amount: editingQuote.amount,
+        discount: editingQuote.discount,
+        subtotal: editingQuote.subtotal
+      });
+      
+      // Update local state
+      setSelectedQuote({
+        ...selectedQuote,
+        amount: editingQuote.amount!,
+        discount: editingQuote.discount,
+        subtotal: editingQuote.subtotal
+      });
+      
+      toast.success("Cotización actualizada");
+      setIsEditing(false);
+    } catch (error) {
+      console.error("Error updating quote:", error);
+      toast.error("Error al actualizar");
+    }
+  };
+
+  // Handle CP Search
+  const handleCpSearch = async () => {
+    if (cpQuery.length < 5) {
+      toast.error("Ingresa un código postal de 5 dígitos");
+      return;
+    }
+    
+    setCpLoading(true);
+    setCpResult(null);
+    
+    try {
+      // Using Zippopotam.us (Free, no key required for MX)
+      const res = await fetch(`https://api.zippopotam.us/mx/${cpQuery}`);
+      if (!res.ok) throw new Error("Código postal no encontrado");
+      
+      const data = await res.json();
+      if (data.places && data.places.length > 0) {
+        const place = data.places[0];
+        setCpResult({
+          place: place["place name"],
+          state: place["state"]
+        });
+        toast.success(`Ubicación encontrada: ${place["place name"]}, ${place["state"]}`);
+      }
+    } catch (error) {
+      console.error("Error fetching CP:", error);
+      toast.error("No se encontró ubicación para este CP");
+    } finally {
+      setCpLoading(false);
+    }
+  };
+
+  // Helper to normalize text for comparison
+  const normalizeText = (text: any) => {
+    if (!text) return "";
+    return text.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  };
+
+  // Handle Excel Upload and Processing
+  const handleExcelUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const toastId = toast.loading("Procesando archivo...");
+
+    try {
+      // 0. Check DB
+      if (!db) throw new Error("Base de datos no disponible");
+
+      // 1. Read Excel File
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[worksheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      if (jsonData.length === 0) {
+        toast.error("El archivo Excel está vacío", { id: toastId });
+        return;
+      }
+
+      // 2. Fetch Tariffs from Firestore
+      const tariffsSnapshot = await getDocs(collection(db, "tarifas"));
+      const tariffs = tariffsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      let totalAmount = 0;
+      let matches = 0;
+      const quoteItems: any[] = [];
+
+      // 3. Match Rows with Tariffs
+      jsonData.forEach((row: any) => {
+        const keys = Object.keys(row);
+        const originKey = keys.find(k => normalizeText(k).includes("origen")) || keys[0]; // Fallback to 1st col
+        const destinationKey = keys.find(k => normalizeText(k).includes("destino")) || keys[1]; // Fallback to 2nd col
+        const vehicleKey = keys.find(k => normalizeText(k).includes("unidad") || normalizeText(k).includes("vehiculo") || normalizeText(k).includes("tipo"));
+        
+        const origin = row[originKey];
+        const destination = row[destinationKey];
+        const vehicleInput = vehicleKey ? row[vehicleKey] : "Full"; // Default to Full if not specified
+
+        if (origin && destination) {
+          const tariff: any = tariffs.find((t: any) => 
+            normalizeText(t.origen) === normalizeText(origin) && 
+            normalizeText(t.destino) === normalizeText(destination)
+          );
+
+          let price = 0;
+          let status = "Sin cobertura";
+          let tariffId = null;
+
+          if (tariff) {
+            tariffId = tariff.id;
+            // Determine price based on vehicle type
+            const v = normalizeText(vehicleInput);
+            const isOverweight = v.includes("sobrepeso") || v.includes("sp");
+
+            if (v.includes("rabon")) {
+              price = parseFloat(tariff.rabon || 0);
+            } else if (v.includes("sencillo") || v.includes("3.5") || v.includes("camioneta")) {
+              price = isOverweight ? parseFloat(tariff.sencillo_sobrepeso || 0) : parseFloat(tariff.sencillo || 0);
+            } else {
+              // Default to full / trailer
+              price = isOverweight ? parseFloat(tariff.full_sobrepeso || 0) : parseFloat(tariff.full || 0);
+            }
+
+            if (price > 0) {
+              totalAmount += price;
+              matches++;
+              status = "Cotizado";
+            } else {
+              status = "Tarifa incompleta";
+            }
+          }
+
+          quoteItems.push({
+            origin,
+            destination,
+            vehicle: vehicleInput,
+            price,
+            status,
+            tariffId,
+            details: row 
+          });
+        }
+      });
+
+      // 4. Pre-fill Create Modal
+      setNewQuoteData(prev => ({
+        ...prev,
+        amount: totalAmount.toFixed(2),
+        projectName: `Cotización Importada (${matches}/${jsonData.length} rutas encontradas)`,
+        items: quoteItems
+      }));
+      
+      setIsCreateModalOpen(true);
+      toast.success(`Procesado con éxito. ${matches} rutas encontradas.`, { id: toastId });
+
+    } catch (error) {
+      console.error("Error processing Excel:", error);
+      toast.error("Error al procesar el archivo Excel", { id: toastId });
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  // Calculate stats
+  const pendingQuotes = quotes.filter(q => q.status === "pendiente").length;
+  const approvedQuotes = quotes.filter(q => q.status === "aprobada").length;
+  const rejectedQuotes = quotes.filter(q => q.status === "rechazada").length;
+  
+  // Dashboard Stats Logic
+  const currentDate = new Date();
+  const currentMonth = currentDate.getMonth();
+  const currentYear = currentDate.getFullYear();
+
+  const thisMonthQuotes = quotes.filter(q => {
+    if (!q.date) return false;
+    // Try to parse DD/MM/YYYY
+    const parts = q.date.split('/');
+    if (parts.length === 3) {
+      const month = parseInt(parts[1], 10) - 1;
+      const year = parseInt(parts[2], 10);
+      return month === currentMonth && year === currentYear;
+    }
+    return false;
+  });
+
+  const thisMonthAmount = thisMonthQuotes.reduce((acc, q) => acc + (q.amount || 0), 0);
+  const totalAmount = quotes.reduce((acc, q) => acc + (q.amount || 0), 0);
+  
+  // Filter quotes for display
+  const filteredQuotes = quotes.filter(q => {
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'pending') return q.status === 'pendiente';
+    if (activeFilter === 'approved') return q.status === 'aprobada';
+    if (activeFilter === 'rejected') return q.status === 'rechazada';
+    return true;
+  });
+
+  return (
+    <div className="flex h-full bg-gray-50 font-sans overflow-hidden">
+      
+      {/* 1. Left Sidebar (Local) */}
+      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0 z-20 print:hidden">
+        <div className="p-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+            <LayoutDashboard className="h-6 w-6 text-black" />
+            Cotizaciones
+          </h2>
+
+          <input 
+            type="file" 
+            ref={fileInputRef}
+            onChange={handleExcelUpload}
+            accept=".xlsx, .xls, .csv"
+            className="hidden"
+          />
+          
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="w-full bg-black text-white px-4 py-3 rounded-xl text-sm font-medium hover:bg-gray-800 transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2">
+                <Plus className="h-5 w-5" />
+                Nueva Cotización
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56 ml-1">
+              <DropdownMenuItem 
+                onClick={() => {
+                  setNewQuoteData({
+                    clientName: "",
+                    projectName: "",
+                    amount: "",
+                    status: "pendiente",
+                    validUntil: "",
+                    items: [],
+                    selectedOrigin: "",
+                    selectedDestination: "",
+                    selectedVehicle: ""
+                  });
+                  setIsCreateModalOpen(true);
+                }}
+                className="cursor-pointer py-3"
+              >
+                <FileText className="mr-3 h-4 w-4 text-gray-500" />
+                <div className="flex flex-col">
+                  <span className="font-medium">Manual</span>
+                  <span className="text-xs text-gray-500">Formulario desde cero</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => fileInputRef.current?.click()}
+                className="cursor-pointer py-3"
+              >
+                <Upload className="mr-3 h-4 w-4 text-gray-500" />
+                <div className="flex flex-col">
+                  <span className="font-medium">Importar Excel</span>
+                  <span className="text-xs text-gray-500">Carga masiva automática</span>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+          <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Filtros</p>
+          
+          <button 
+            onClick={() => setActiveFilter('all')}
+            className={cn(
+              "w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+              activeFilter === 'all' 
+                ? "bg-gray-100 text-gray-900" 
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <Inbox className="h-4 w-4" />
+              Todas
+            </div>
+            <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{quotes.length}</span>
+          </button>
+
+          <button 
+            onClick={() => setActiveFilter('pending')}
+            className={cn(
+              "w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+              activeFilter === 'pending' 
+                ? "bg-amber-50 text-amber-700" 
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <Clock className="h-4 w-4" />
+              Pendientes
+            </div>
+            {pendingQuotes > 0 && (
+              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{pendingQuotes}</span>
+            )}
+          </button>
+
+          <button 
+            onClick={() => setActiveFilter('approved')}
+            className={cn(
+              "w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+              activeFilter === 'approved' 
+                ? "bg-green-50 text-green-700" 
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="h-4 w-4" />
+              Aprobadas
+            </div>
+            {approvedQuotes > 0 && (
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{approvedQuotes}</span>
+            )}
+          </button>
+
+          <button 
+            onClick={() => setActiveFilter('rejected')}
+            className={cn(
+              "w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+              activeFilter === 'rejected' 
+                ? "bg-red-50 text-red-700" 
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <Archive className="h-4 w-4" />
+              Rechazadas
+            </div>
+            {rejectedQuotes > 0 && (
+              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{rejectedQuotes}</span>
+            )}
+          </button>
+        </nav>
+        
+        {/* Footer of Sidebar - Dashboard Stats */}
+        <div className="p-4 border-t border-gray-200 space-y-3 bg-gray-50/50">
+          
+          {/* This Month Stats */}
+          <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-gray-500">
+                <Calendar className="h-3.5 w-3.5" />
+                <p className="text-xs font-semibold uppercase">Este Mes</p>
+              </div>
+              <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                {thisMonthQuotes.length} total
+              </span>
+            </div>
+            <p className="text-lg font-bold text-gray-900">
+              S/ {thisMonthAmount.toFixed(2)}
+            </p>
+          </div>
+
+          {/* All Time Stats */}
+          <div className="bg-black text-white rounded-xl p-3 shadow-md">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-gray-400">
+                <TrendingUp className="h-3.5 w-3.5" />
+                <p className="text-xs font-semibold uppercase">Histórico</p>
+              </div>
+              <span className="text-[10px] font-medium text-white bg-white/20 px-2 py-0.5 rounded-full">
+                {quotes.length} total
+              </span>
+            </div>
+            <p className="text-lg font-bold">
+              S/ {totalAmount.toFixed(2)}
+            </p>
+          </div>
+        </div>
+      </aside>
+
+      {/* 2. Main Content Area */}
+      <main className="flex-1 flex flex-col overflow-hidden bg-white print:hidden">
+        {/* Header Toolbar */}
+        <header className="h-16 border-b border-gray-200 flex items-center justify-between px-6 bg-white shrink-0">
+          <div className="flex items-center gap-4 flex-1">
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder="Buscar por cliente, proyecto..." 
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
+              />
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+              <ArrowUpDown className="h-4 w-4" />
+              Ordenar
+            </button>
+          </div>
+        </header>
+
+        {/* Content Scroll Area */}
+        <div className="flex-1 overflow-auto p-0">
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 bg-white z-10 shadow-sm">
+              <tr className="border-b border-gray-100">
+                <th className="py-4 pl-6 pr-4 text-xs font-semibold text-gray-500 w-1/3">Cliente / Proyecto</th>
+                <th className="py-4 px-4 text-xs font-semibold text-gray-500 w-1/6">Fecha</th>
+                <th className="py-4 px-4 text-xs font-semibold text-gray-500 w-1/6">Monto</th>
+                <th className="py-4 px-4 text-xs font-semibold text-gray-500 w-1/6">Válido Hasta</th>
+                <th className="py-4 px-4 text-xs font-semibold text-gray-500 w-1/6 text-center">Estado</th>
+                <th className="py-4 px-4 text-xs font-semibold text-gray-500 w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-20 text-center text-gray-400 text-sm">
+                    Cargando cotizaciones...
+                  </td>
+                </tr>
+              ) : filteredQuotes.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-20 text-center text-gray-400 text-sm">
+                    <div className="flex flex-col items-center gap-2">
+                      <Inbox className="h-8 w-8 text-gray-300" />
+                      <p>No se encontraron cotizaciones en esta vista.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredQuotes.map((quote) => (
+                  <tr 
+                    key={quote.id} 
+                    className="group hover:bg-gray-50/80 transition-colors cursor-pointer"
+                    onClick={() => setSelectedQuote(quote)}
+                  >
+                    <td className="py-4 pl-6 pr-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-gray-500">
+                          <span className="font-bold text-xs">{quote.clientName.substring(0, 2).toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                            {quote.clientName}
+                          </div>
+                          <div className="text-xs text-gray-500">{quote.projectName}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-4 px-4 text-sm text-gray-500">{quote.date}</td>
+                    <td className="py-4 px-4 text-sm font-medium text-gray-900">$ {quote.amount.toFixed(2)}</td>
+                    <td className="py-4 px-4 text-sm text-gray-500">{quote.validUntil}</td>
+                    <td className="py-4 px-4">
+                      <div 
+                        className="flex justify-center" 
+                        onClick={(e) => e.stopPropagation()} 
+                      >
+                        <Select 
+                          defaultValue={quote.status}
+                          onValueChange={(value) => {
+                            updateQuoteStatus(quote.id, value as Quote['status']);
+                          }}
+                          disabled={!isAdmin}
+                        >
+                          <SelectTrigger className={cn(
+                            "h-7 text-xs w-[110px] rounded-full border-0 focus:ring-0 focus:ring-offset-0 font-medium",
+                            getStatusColor(quote.status)
+                          )}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="aprobada">Aprobada</SelectItem>
+                            <SelectItem value="pendiente">Pendiente</SelectItem>
+                            <SelectItem value="rechazada">Rechazada</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </td>
+                    <td className="py-4 px-4 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="text-gray-300 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteQuote(quote.id);
+                            }}
+                            className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
+                          >
+                            Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </main>
+
+      {/* 3. Create Quote Modal (Same as before) */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 print:hidden">
+          <div 
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsCreateModalOpen(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto max-h-[90vh]">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Nueva Cotización</h2>
+              <button 
+                onClick={() => setIsCreateModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateQuote} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-gray-700">Cliente</label>
+                <input 
+                  required
+                  type="text" 
+                  value={newQuoteData.clientName}
+                  onChange={(e) => setNewQuoteData({...newQuoteData, clientName: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                  placeholder="Ej. Juan Pérez / Empresa SAC"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-gray-700">Proyecto / Descripción</label>
+                <input 
+                  required
+                  type="text" 
+                  value={newQuoteData.projectName}
+                  onChange={(e) => setNewQuoteData({...newQuoteData, projectName: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                  placeholder="Ej. Instalación de equipos"
+                />
+              </div>
+
+              {/* Items Preview if available */}
+              {newQuoteData.items && newQuoteData.items.length > 0 && (
+                <div className="bg-gray-50 p-3 rounded-lg text-xs space-y-2 max-h-40 overflow-y-auto border border-gray-100">
+                  <p className="font-semibold text-gray-700">Resumen de Importación ({newQuoteData.items.length} items)</p>
+                  {newQuoteData.items.slice(0, 10).map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-gray-600">
+                      <span className="truncate max-w-[60%]">{item.origin} → {item.destination}</span>
+                      <span className={item.price > 0 ? "text-green-600 font-medium" : "text-red-400"}>
+                      {item.price > 0 ? `$ ${item.price}` : "Sin precio"}
+                    </span>
+                    </div>
+                  ))}
+                  {newQuoteData.items.length > 10 && (
+                    <p className="text-center text-gray-400 italic pt-1">...y {newQuoteData.items.length - 10} más</p>
+                  )}
+                </div>
+              )}
+
+              {/* Tariff Calculator Section */}
+              <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-4">
+                <div className="flex items-center gap-2 text-blue-700 mb-1">
+                  <FileText className="h-4 w-4" />
+                  <p className="text-sm font-semibold">Calcular desde Tarifario</p>
+                </div>
+
+                {/* CP Search Section */}
+                <div className="bg-white p-3 rounded-lg border border-blue-100 shadow-sm mb-3">
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Buscar ubicación por C.P.</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <MapPin className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400" />
+                      <input 
+                        type="text" 
+                        value={cpQuery}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '').slice(0, 5);
+                          setCpQuery(val);
+                        }}
+                        placeholder="Ej. 06600"
+                        className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCpSearch}
+                      disabled={cpLoading || cpQuery.length < 5}
+                      className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded text-xs font-medium hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      {cpLoading ? "..." : <SearchIcon className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  
+                  {cpResult && (
+                    <div className="mt-2 text-xs bg-green-50 text-green-700 p-2 rounded flex flex-col gap-2">
+                      <div className="font-medium flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" />
+                        {cpResult.place}, {cpResult.state}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Only set origin if it exists in uniqueOrigins? Or allow custom?
+                            // For now, let's allow it but warn if not in list, 
+                            // OR just populate the Select if it matches, otherwise maybe we need a free text input fallback.
+                            // The current UI uses Select for Origin. If we set a value not in options, Select might break or show empty.
+                            // Let's try to set it and see if Select handles custom values (usually Radix Select requires value to match option).
+                            // If not found, we might need to switch to manual input mode or add it to the list temporarily.
+                            
+                            // Strategy: Check if exists, if not add to uniqueOrigins temporarily
+                            // User Request: "el precio va a ser el del estado" -> Use state instead of place
+                            const locationStr = cpResult.state; 
+                            
+                            if (locationStr) {
+                              const cleanLocation = locationStr.trim();
+                              // Explicitly add to list BEFORE setting value to ensure Select component renders it
+                              setUniqueOrigins(prev => {
+                                if (!prev.includes(cleanLocation)) return [cleanLocation, ...prev];
+                                return prev;
+                              });
+                              setNewQuoteData(prev => ({...prev, selectedOrigin: cleanLocation, selectedDestination: ""}));
+                              toast.success(`Origen establecido: ${cleanLocation}`);
+                            }
+                            setCpQuery("");
+                            setCpResult(null);
+                          }}
+                          className="flex-1 bg-white border border-green-200 py-1 rounded shadow-sm hover:bg-green-100 text-center"
+                        >
+                          Usar Estado como Origen
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // User Request: "el precio va a ser el del estado" -> Use state instead of place
+                            const locationStr = cpResult.state;
+                            
+                            if (locationStr) {
+                              const cleanLocation = locationStr.trim();
+                              // Explicitly add to list BEFORE setting value to ensure Select component renders it
+                              // This is crucial for Radix Select to show the value instead of placeholder
+                              setUniqueDestinations(prev => {
+                                if (!prev.includes(cleanLocation)) return [cleanLocation, ...prev];
+                                return prev;
+                              });
+                              setNewQuoteData(prev => ({...prev, selectedDestination: cleanLocation}));
+                              toast.success(`Destino establecido: ${cleanLocation}`);
+                            }
+                            setCpQuery("");
+                            setCpResult(null);
+                          }}
+                          className="flex-1 bg-white border border-green-200 py-1 rounded shadow-sm hover:bg-green-100 text-center"
+                        >
+                          Usar Estado como Destino
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-600">Origen</label>
+                    <Select 
+                      value={newQuoteData.selectedOrigin} 
+                      onValueChange={(val) => setNewQuoteData({...newQuoteData, selectedOrigin: val})}
+                    >
+                      <SelectTrigger className="h-9 text-xs bg-white border-blue-200 focus:ring-blue-100">
+                        <SelectValue placeholder="Seleccionar origen" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {uniqueOrigins.map(origin => (
+                          <SelectItem key={origin} value={origin}>{origin}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-600">Destino</label>
+                    <Select 
+                      value={newQuoteData.selectedDestination} 
+                      onValueChange={(val) => setNewQuoteData({...newQuoteData, selectedDestination: val})}
+                      disabled={!newQuoteData.selectedOrigin && !newQuoteData.selectedDestination}
+                    >
+                      <SelectTrigger className="h-9 text-xs bg-white border-blue-200 focus:ring-blue-100">
+                        <SelectValue placeholder="Seleccionar destino" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {uniqueDestinations.map(dest => (
+                          <SelectItem key={dest} value={dest}>{dest}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-medium text-gray-600">Tipo de Unidad</label>
+                    <Dialog open={isCubicajeOpen} onOpenChange={setIsCubicajeOpen}>
+                      <DialogTrigger asChild>
+                        <button type="button" className="text-[10px] text-blue-600 font-medium hover:underline flex items-center gap-1">
+                          <TrendingUp className="h-3 w-3" />
+                          Calcular Cubicaje
+                        </button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Calculadora de Cubicaje</DialogTitle>
+                          <DialogDescription>
+                            Ingresa las medidas de tu carga para sugerir la unidad ideal.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                          {/* Config Trigger (Hidden or Small) */}
+                          <div className="flex justify-end">
+                            <Dialog open={isVehiclesConfigOpen} onOpenChange={setIsVehiclesConfigOpen}>
+                              <DialogTrigger asChild>
+                                <button className="text-[10px] text-gray-400 hover:text-gray-600 underline">
+                                  Administrar Unidades (CSV)
+                                </button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Importar Catálogo de Unidades</DialogTitle>
+                                  <DialogDescription>
+                                    Sube un archivo CSV con las columnas: servicio, largo, ancho, alto, peso_reglamentario, sobrepeso.
+                                    <br/>
+                                    <span className="text-xs text-red-500">Nota: Esto agregará nuevas unidades a la base de datos.</span>
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4 py-4">
+                                  <input 
+                                    type="file" 
+                                    accept=".csv, .xlsx, .xls"
+                                    onChange={handleVehiclesFileUpload}
+                                    className="w-full text-sm"
+                                  />
+                                  <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                                    <p className="font-semibold">Ejemplo de formato:</p>
+                                    <p>servicio, largo, ancho, alto, peso_reglamentario, sobrepeso</p>
+                                    <p>Camioneta 3.5, 3.50, 2.20, 2.20, 3.50, 0.00</p>
+                                  </div>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium">Largo (metros)</label>
+                              <input 
+                                type="number" 
+                                value={cubicajeData.largo}
+                                onChange={(e) => setCubicajeData({...cubicajeData, largo: e.target.value})}
+                                className="w-full p-2 border rounded text-sm"
+                                placeholder="Ej. 1.20"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium">Ancho (metros)</label>
+                              <input 
+                                type="number" 
+                                value={cubicajeData.ancho}
+                                onChange={(e) => setCubicajeData({...cubicajeData, ancho: e.target.value})}
+                                className="w-full p-2 border rounded text-sm"
+                                placeholder="Ej. 1.00"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium">Alto (metros)</label>
+                              <input 
+                                type="number" 
+                                value={cubicajeData.alto}
+                                onChange={(e) => setCubicajeData({...cubicajeData, alto: e.target.value})}
+                                className="w-full p-2 border rounded text-sm"
+                                placeholder="Ej. 1.50"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium">Peso por bulto (ton)</label>
+                              <input 
+                                type="number" 
+                                value={cubicajeData.peso}
+                                onChange={(e) => setCubicajeData({...cubicajeData, peso: e.target.value})}
+                                className="w-full p-2 border rounded text-sm"
+                                placeholder="Ej. 1.5"
+                              />
+                            </div>
+                            <div className="space-y-2 col-span-2">
+                              <label className="text-xs font-medium">Cantidad de bultos/pallets</label>
+                              <input 
+                                type="number" 
+                                value={cubicajeData.cantidad}
+                                onChange={(e) => setCubicajeData({...cubicajeData, cantidad: e.target.value})}
+                                className="w-full p-2 border rounded text-sm"
+                                placeholder="Ej. 10"
+                              />
+                            </div>
+                          </div>
+                          
+                          <button 
+                            type="button"
+                            onClick={calculateCubicaje}
+                            className="w-full bg-blue-600 text-white py-2 rounded text-sm font-medium hover:bg-blue-700"
+                          >
+                            Calcular
+                          </button>
+
+                          {suggestedVehicle && (
+                            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg animate-in fade-in">
+                              <p className="text-xs text-green-600 font-semibold uppercase mb-1">Unidad Recomendada</p>
+                              <p className="text-lg font-bold text-green-900 mb-2">{suggestedVehicle.name}</p>
+                              <div className="text-xs text-gray-600 space-y-1 mb-3">
+                                <p>Capacidad Peso: {suggestedVehicle.pesoMax} ton</p>
+                                <p>Capacidad Volumen: {suggestedVehicle.volumenMax} m³</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={applySuggestedVehicle}
+                                className="w-full bg-green-600 text-white py-1.5 rounded text-xs font-medium hover:bg-green-700"
+                              >
+                                Usar esta unidad
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                  <Select 
+                    value={newQuoteData.selectedVehicle} 
+                    onValueChange={(val) => setNewQuoteData({...newQuoteData, selectedVehicle: val})}
+                  >
+                    <SelectTrigger className="h-9 text-xs bg-white border-blue-200 focus:ring-blue-100">
+                      <SelectValue placeholder="Seleccionar tipo de unidad" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="rabon">Rabón</SelectItem>
+                      <SelectItem value="sencillo">Sencillo</SelectItem>
+                      <SelectItem value="sencillo_sobrepeso">Sencillo (Sobrepeso)</SelectItem>
+                      <SelectItem value="full">Full / Trailer</SelectItem>
+                      <SelectItem value="full_sobrepeso">Full (Sobrepeso)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Calculated Price Display */}
+                {newQuoteData.amount && parseFloat(newQuoteData.amount) > 0 && (
+                  <div className="mt-3 p-3 bg-blue-100 rounded-lg flex justify-between items-center animate-in fade-in slide-in-from-top-2">
+                    <span className="text-sm font-medium text-blue-800">Precio Calculado:</span>
+                    <span className="text-lg font-bold text-blue-900">$ {parseFloat(newQuoteData.amount).toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Válido Hasta</label>
+                  <input 
+                    type="date" 
+                    value={newQuoteData.validUntil}
+                    onChange={(e) => setNewQuoteData({...newQuoteData, validUntil: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                >
+                  Crear Cotización
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* 4. Quote Document Detail Modal */}
+      {selectedQuote && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 print:static print:bg-white print:p-0 print:block print:z-auto">
+            <div 
+              className="absolute inset-0 print:hidden"
+              onClick={() => setSelectedQuote(null)}
+            />
+            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 print:shadow-none print:rounded-none print:w-full print:max-w-none print:max-h-none print:h-auto print:overflow-visible print:block">
+            
+            {/* Toolbar Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white z-10 print:hidden">
+              <div className="flex items-center gap-3">
+                <div className="bg-gray-100 p-2 rounded-lg">
+                  <FileText className="h-5 w-5 text-gray-700" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Vista de Documento</h2>
+                  <p className="text-xs text-gray-500">Cotización #{selectedQuote.id.substring(0, 8).toUpperCase()}</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setIsEditing(!isEditing)}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                    isEditing 
+                      ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" 
+                      : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                  {isEditing ? 'Editando...' : 'Editar'}
+                </button>
+                
+                <div className="h-6 w-px bg-gray-200 mx-1" />
+                  
+                  <button 
+                    onClick={() => generateQuotePDF(selectedQuote)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Descargar PDF
+                  </button>
+
+                  <button 
+                    onClick={() => window.print()}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors border border-gray-200"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    Imprimir
+                  </button>
+                  <button 
+                  onClick={() => setSelectedQuote(null)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Document Scrollable Area */}
+              <div className="flex-1 overflow-y-auto bg-gray-50/50 p-6 md:p-8 print:overflow-visible print:bg-white print:p-0 print:block">
+                {/* Paper Representation */}
+                <div className="mx-auto max-w-3xl bg-white shadow-sm border border-gray-200 rounded-sm min-h-[800px] flex flex-col relative print:shadow-none print:border-none print:w-full print:max-w-none">
+                
+                {/* Status Badge (Watermark style) */}
+                <div className="absolute top-6 right-6">
+                  <span className={cn(
+                    "px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border",
+                    getStatusColor(selectedQuote.status)
+                  )}>
+                    {selectedQuote.status}
+                  </span>
+                </div>
+
+                {/* Document Header */}
+                <div className="p-10 pb-0">
+                  <div className="flex justify-between items-start mb-12">
+                    {/* Logo Area */}
+                      <div className="flex flex-col gap-2">
+                        <div className="mb-2">
+                           <img src="/logo.png" alt="LUJAV LOGISTICA" className="h-16 w-auto object-contain" />
+                        </div>
+                        <div className="text-xs text-gray-500 space-y-0.5 mt-2">
+                          <p className="font-semibold text-gray-900">LUJAV LOGISTICA S.A. DE C.V.</p>
+                          <p>Carretera Federal Km 123</p>
+                          <p>Altamira, Tamaulipas</p>
+                          <p>contacto@lujav.com</p>
+                        </div>
+                      </div>
+
+                    {/* Quote Meta */}
+                    <div className="text-right">
+                      <h2 className="text-2xl font-light text-gray-900 mb-4">COTIZACIÓN</h2>
+                      <div className="space-y-1">
+                        <div className="flex justify-end gap-4 text-sm">
+                          <span className="text-gray-500">Folio:</span>
+                          <span className="font-medium text-gray-900">#{selectedQuote.id.substring(0, 8).toUpperCase()}</span>
+                        </div>
+                        <div className="flex justify-end gap-4 text-sm">
+                          <span className="text-gray-500">Fecha:</span>
+                          <span className="font-medium text-gray-900">{selectedQuote.date}</span>
+                        </div>
+                        <div className="flex justify-end gap-4 text-sm">
+                          <span className="text-gray-500">Vence:</span>
+                          <span className="font-medium text-gray-900">{selectedQuote.validUntil}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Client Section */}
+                  <div className="border-t border-b border-gray-100 py-6 mb-8 grid grid-cols-2 gap-8">
+                    <div>
+                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Facturar a</h3>
+                      <p className="text-base font-bold text-gray-900 mb-1">{selectedQuote.clientName}</p>
+                      <p className="text-sm text-gray-600">{selectedQuote.projectName}</p>
+                      <p className="text-sm text-gray-500 mt-1">ID Cliente: {selectedQuote.id.substring(0, 4)}</p>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Condiciones</h3>
+                      <p className="text-sm text-gray-600 mb-1"><span className="font-medium text-gray-900">Moneda:</span> Pesos Mexicanos (MXN)</p>
+                      <p className="text-sm text-gray-600"><span className="font-medium text-gray-900">Pago:</span> Contado / Crédito 30 días</p>
+                    </div>
+                  </div>
+
+                  {/* Items Table */}
+                  <div className="mb-8">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 border-y border-gray-100">
+                          <th className="py-3 px-4 text-left font-semibold text-gray-700 w-[50%]">Descripción / Ruta</th>
+                          <th className="py-3 px-4 text-left font-semibold text-gray-700">Unidad</th>
+                          <th className="py-3 px-4 text-right font-semibold text-gray-700">Importe</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {selectedQuote.items?.map((item, idx) => (
+                          <tr key={idx}>
+                            <td className="py-4 px-4 text-gray-900">
+                              <div className="font-medium">{item.origin} — {item.destination}</div>
+                              {item.details && (
+                                <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{JSON.stringify(item.details)}</div>
+                              )}
+                            </td>
+                            <td className="py-4 px-4 text-gray-600 capitalize">
+                              <span className="bg-gray-100 px-2 py-1 rounded text-xs font-medium">
+                                {item.vehicle?.replace(/_/g, ' ') || 'Estándar'}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-right font-medium text-gray-900">
+                              $ {(item.price || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))}
+                        {(!selectedQuote.items || selectedQuote.items.length === 0) && (
+                          <tr>
+                            <td className="py-4 px-4 text-gray-900">
+                              <div className="font-medium">{selectedQuote.projectName || "Servicio de Logística General"}</div>
+                            </td>
+                            <td className="py-4 px-4 text-gray-600 capitalize">
+                              <span className="bg-gray-100 px-2 py-1 rounded text-xs font-medium">
+                                Servicio
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-right font-medium text-gray-900">
+                              $ {(selectedQuote.amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Footer / Totals */}
+                <div className="mt-auto bg-gray-50 p-10 border-t border-gray-100">
+                  <div className="flex justify-end">
+                    <div className="w-72 space-y-3">
+                      <div className="flex justify-between text-sm text-gray-600">
+                        <span className="font-medium">Subtotal</span>
+                        <span>$ {(editingQuote.subtotal || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      
+                      <div className="flex justify-between text-sm text-gray-600 items-center">
+                        <span className="font-medium">Descuento</span>
+                        {isEditing ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400 text-xs">MXN</span>
+                            <input 
+                              type="number" 
+                              value={editingQuote.discount}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setEditingQuote({
+                                  ...editingQuote,
+                                  discount: val,
+                                  amount: (editingQuote.subtotal || 0) - val
+                                });
+                              }}
+                              className="w-24 text-right px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white"
+                              placeholder="0.00"
+                            />
+                          </div>
+                        ) : (
+                          <span className={editingQuote.discount ? "text-red-600" : "text-gray-400"}>
+                            - $ {(editingQuote.discount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="h-px bg-gray-200 my-2" />
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-lg font-bold text-gray-900">Total</span>
+                        {isEditing ? (
+                           <div className="flex items-center gap-2">
+                             <span className="text-gray-400 text-xs font-bold">MXN</span>
+                             <input 
+                               type="number" 
+                               value={editingQuote.amount}
+                               onChange={(e) => {
+                                 const val = parseFloat(e.target.value) || 0;
+                                 setEditingQuote({
+                                   ...editingQuote,
+                                   amount: val
+                                 });
+                               }}
+                               className="w-32 text-right px-2 py-1.5 border border-gray-300 rounded-lg font-bold text-gray-900 text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white shadow-sm"
+                             />
+                           </div>
+                        ) : (
+                          <span className="text-2xl font-bold text-gray-900">
+                            $ {(editingQuote.amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 text-right mt-1">Precios en Pesos Mexicanos (MXN)</p>
+                    </div>
+                  </div>
+                  
+                  {/* Terms & Bank Info */}
+                    <div className="mt-8 pt-6 border-t border-gray-200 grid grid-cols-2 gap-8 text-xs text-gray-500">
+                      <div>
+                        <p className="font-semibold text-gray-700 mb-2">Términos y Condiciones:</p>
+                        <ul className="list-disc list-inside space-y-1 opacity-80">
+                          <li>Esta cotización tiene una vigencia de {15} días naturales.</li>
+                          <li>Los tiempos de entrega están sujetos a disponibilidad de unidades.</li>
+                          <li>Precios sujetos a cambio sin previo aviso si no se ha confirmado el servicio.</li>
+                          <li>Se requiere el 50% de anticipo para programar la unidad.</li>
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-700 mb-2">Datos Bancarios:</p>
+                        <div className="space-y-1 opacity-80">
+                          <p><span className="font-medium">Banco:</span> BBVA Bancomer</p>
+                          <p><span className="font-medium">Beneficiario:</span> LUJAV LOGISTICA S.A. DE C.V.</p>
+                          <p><span className="font-medium">Cuenta:</span> 0123456789</p>
+                          <p><span className="font-medium">CLABE:</span> 012345678901234567</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Signature */}
+                    <div className="mt-16 mb-8 flex justify-center">
+                      <div className="text-center">
+                        <div className="w-64 h-px bg-gray-300 mb-2"></div>
+                        <p className="text-sm font-medium text-gray-900">LUJAV LOGISTICA</p>
+                        <p className="text-xs text-gray-500">Departamento de Ventas</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            {/* Editing Actions Footer */}
+            {isEditing && (
+              <div className="p-4 border-t border-gray-100 bg-white flex justify-between items-center z-10 animate-in slide-in-from-bottom-2 print:hidden">
+                <span className="text-sm text-gray-500 ml-2">
+                  Editando cotización...
+                </span>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => {
+                      setIsEditing(false);
+                      // Reset to original values if cancelled
+                      if (selectedQuote) {
+                        setEditingQuote({
+                          amount: selectedQuote.amount,
+                          discount: selectedQuote.discount || 0,
+                          subtotal: selectedQuote.subtotal || selectedQuote.amount
+                        });
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={handleSaveQuoteChanges}
+                    className="px-6 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 shadow-lg shadow-gray-200 flex items-center gap-2 transition-all hover:scale-[1.02]"
+                  >
+                    <Save className="h-4 w-4" />
+                    Guardar Cambios
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

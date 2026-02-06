@@ -27,6 +27,13 @@ export default function Login() {
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError(null);
+    
+    if (!auth || !googleProvider) {
+      setError("Error de configuración: Firebase Auth o Google Provider no inicializado.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
@@ -73,6 +80,12 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    if (!auth) {
+      setError("Error de configuración: Firebase Auth no está inicializado. Verifica las variables de entorno.");
+      setLoading(false);
+      return;
+    }
 
     try {
       if (isLogin) {
@@ -135,8 +148,13 @@ export default function Login() {
       if (err.code === 'auth/wrong-password') errorMessage = "Contraseña incorrecta";
       if (err.code === 'auth/user-not-found') errorMessage = "Usuario no encontrado";
       if (err.code === 'auth/email-already-in-use') errorMessage = "El correo ya está registrado";
+      if (err.code === 'auth/invalid-credential') errorMessage = "Credenciales incorrectas (correo o contraseña no válidos)";
+      if (err.code === 'auth/too-many-requests') errorMessage = "Demasiados intentos fallidos. Intenta más tarde.";
+      
+      if (err.code === 'permission-denied') errorMessage = "Permiso denegado: No tienes autorización para acceder a la base de datos.";
       
       setError(errorMessage);
+      console.error("Login Error Full Object:", err);
       toast.error("Error de autenticación", {
         description: errorMessage,
       });

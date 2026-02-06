@@ -88,8 +88,8 @@ export default function AIChatBot({ isOpen, onClose, user }: AIChatBotProps) {
     const content = inputValue;
     setInputValue(""); // Clear input immediately
 
-    // If no user, use local state (fallback)
-    if (!user) {
+    // If no user or db, use local state (fallback)
+    if (!user || !db) {
       const newMessage: Message = { 
         role: 'user', 
         content: content,
