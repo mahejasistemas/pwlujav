@@ -19,7 +19,9 @@ export async function GET() {
     }
     
     // Fetch all tariffs
-    const q = query(collection(db, "tarifas"));
+    // Store in local variable to ensure type safety in closures/scopes
+    const firestore = db;
+    const q = query(collection(firestore, "tarifas"));
     const snapshot = await getDocs(q);
     
     const tariffs = snapshot.docs.map(doc => {
@@ -49,6 +51,7 @@ export async function POST(request: Request) {
     if (!db) {
       return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
     }
+    const firestore = db;
 
     const body = await request.json();
     
@@ -64,7 +67,7 @@ export async function POST(request: Request) {
            full_sobrepeso: parsePrice(item.full_sobrepeso || item.full_sp),
            createdAt: new Date().toISOString()
          };
-         const ref = await addDoc(collection(db, "tarifas"), docData);
+         const ref = await addDoc(collection(firestore, "tarifas"), docData);
          return ref.id;
        });
        
@@ -81,7 +84,7 @@ export async function POST(request: Request) {
            full_sobrepeso: parsePrice(body.full_sobrepeso || body.full_sp),
            createdAt: new Date().toISOString()
          };
-         const ref = await addDoc(collection(db, "tarifas"), docData);
+         const ref = await addDoc(collection(firestore, "tarifas"), docData);
          return NextResponse.json({ success: true, id: ref.id });
     }
 
