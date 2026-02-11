@@ -48,11 +48,14 @@ export default function CotizacionesPage() {
   }, []);
 
   // Filter Logic
-  const filteredQuotes = quotes.filter(q => filter === 'all' || q.status === filter);
+  const filteredQuotes = quotes.filter(q => {
+    const quoteStatus = q.status as string;
+    return filter === 'all' || quoteStatus === filter;
+  });
   
   // Stats
   const thisMonth = new Date().toISOString().slice(0, 7);
-  const monthQuotes = quotes.filter(q => q.date.startsWith(thisMonth));
+  const monthQuotes = quotes.filter(q => q.date && typeof q.date === 'string' && q.date.startsWith(thisMonth));
   const monthAmount = monthQuotes.reduce((acc, q) => acc + (Number(q.amount) || 0), 0);
   const totalAmount = quotes.reduce((acc, q) => acc + (Number(q.amount) || 0), 0);
 
