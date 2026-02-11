@@ -16,7 +16,10 @@ import {
   MapPin,
   CheckCircle2,
   AlertCircle,
-  Clock
+  Clock,
+  Upload,
+  Phone,
+  Mail
 } from "lucide-react";
 import {
   Select,
@@ -39,7 +42,20 @@ interface Client {
   serviceType: string;
   quotesCount: number;
   reports: { id: number; title: string; date: string }[];
+  logo?: string;
+  phone?: string;
+  email?: string;
 }
+
+const LOCATIONS = {
+  "México": ["Aguascalientes", "Baja California", "Baja California Sur", "Campeche", "Chiapas", "Chihuahua", "Ciudad de México", "Coahuila", "Colima", "Durango", "Guanajuato", "Guerrero", "Hidalgo", "Jalisco", "Estado de México", "Michoacán", "Morelos", "Nayarit", "Nuevo León", "Oaxaca", "Puebla", "Querétaro", "Quintana Roo", "San Luis Potosí", "Sinaloa", "Sonora", "Tabasco", "Tamaulipas", "Tlaxcala", "Veracruz", "Yucatán", "Zacatecas"],
+  "Estados Unidos": ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"],
+  "Colombia": ["Amazonas", "Antioquia", "Arauca", "Atlántico", "Bolívar", "Boyacá", "Caldas", "Caquetá", "Casanare", "Cauca", "Cesar", "Chocó", "Córdoba", "Cundinamarca", "Guainía", "Guaviare", "Huila", "La Guajira", "Magdalena", "Meta", "Nariño", "Norte de Santander", "Putumayo", "Quindío", "Risaralda", "San Andrés y Providencia", "Santander", "Sucre", "Tolima", "Valle del Cauca", "Vaupés", "Vichada"],
+  "Perú": ["Amazonas", "Áncash", "Apurímac", "Arequipa", "Ayacucho", "Cajamarca", "Callao", "Cusco", "Huancavelica", "Huánuco", "Ica", "Junín", "La Libertad", "Lambayeque", "Lima", "Loreto", "Madre de Dios", "Moquegua", "Pasco", "Piura", "Puno", "San Martín", "Tacna", "Tumbes", "Ucayali"],
+  "Argentina": ["Buenos Aires", "Catamarca", "Chaco", "Chubut", "Córdoba", "Corrientes", "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja", "Mendoza", "Misiones", "Neuquén", "Río Negro", "Salta", "San Juan", "San Luis", "Santa Cruz", "Santa Fe", "Santiago del Estero", "Tierra del Fuego", "Tucumán"],
+  "Chile": ["Arica y Parinacota", "Tarapacá", "Antofagasta", "Atacama", "Coquimbo", "Valparaíso", "Metropolitana", "O'Higgins", "Maule", "Ñuble", "Biobío", "Araucanía", "Los Ríos", "Los Lagos", "Aysén", "Magallanes"],
+  "España": ["Andalucía", "Aragón", "Asturias", "Baleares", "Canarias", "Cantabria", "Castilla-La Mancha", "Castilla y León", "Cataluña", "Extremadura", "Galicia", "Madrid", "Murcia", "Navarra", "País Vasco", "La Rioja", "Valencia"]
+};
 
 export default function ClientsPage() {
   // Clients state
@@ -72,10 +88,24 @@ export default function ClientsPage() {
   const [newClientData, setNewClientData] = useState({
     name: "",
     company: "",
-    location: "",
-    serviceType: "",
-    status: "en_proceso" as "completado" | "en_proceso" | "sin_exito"
+    country: "",
+    region: "",
+    logo: "",
+    phoneCode: "+52",
+    phoneNumber: "",
+    email: ""
   });
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewClientData(prev => ({ ...prev, logo: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,9 +115,12 @@ export default function ClientsPage() {
         name: newClientData.name,
         company: newClientData.company,
         date: new Date().toLocaleDateString(),
-        location: newClientData.location,
-        status: newClientData.status,
-        serviceType: newClientData.serviceType,
+        location: `${newClientData.region}, ${newClientData.country}`,
+        status: "en_proceso",
+        serviceType: "Carga General", // Default value
+        logo: newClientData.logo,
+        phone: `${newClientData.phoneCode} ${newClientData.phoneNumber}`,
+        email: newClientData.email,
         quotesCount: 0,
         reports: []
       };
@@ -99,9 +132,12 @@ export default function ClientsPage() {
       setNewClientData({
         name: "",
         company: "",
-        location: "",
-        serviceType: "",
-        status: "en_proceso"
+        country: "",
+        region: "",
+        logo: "",
+        phoneCode: "+52",
+        phoneNumber: "",
+        email: ""
       });
       toast.success("Cliente creado exitosamente");
     } catch (error) {
@@ -243,16 +279,15 @@ export default function ClientsPage() {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-gray-100">
-              <th className="py-3 pr-4 text-xs font-semibold text-gray-500 w-1/4 pl-1">Nombre / Empresa</th>
-              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-1/6">
+              <th className="py-3 pr-4 text-xs font-semibold text-gray-500 pl-1 w-[40%]">Nombre / Empresa</th>
+              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-[15%]">
                  <div className="flex items-center gap-1 cursor-pointer hover:text-gray-700">
                   Fecha <ArrowUpDown className="h-3 w-3" />
                 </div>
               </th>
-              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-1/6">Ubicación</th>
-              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-1/6">Tipo de Servicio</th>
-              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-1/6 text-center">Estado</th>
-              <th className="py-3 pl-4 text-xs font-semibold text-gray-500 w-10 text-right pr-2">
+              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-[20%]">Ubicación</th>
+              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-[20%]">Tipo de Servicio</th>
+              <th className="py-3 pl-4 text-xs font-semibold text-gray-500 w-[5%] text-right pr-2">
                 <Plus className="h-4 w-4 ml-auto cursor-pointer hover:text-gray-700" />
               </th>
             </tr>
@@ -278,15 +313,19 @@ export default function ClientsPage() {
                   onClick={() => setSelectedClient(client)}
                 >
                   <td className="py-3 pr-4 pl-1">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-gray-500 font-bold text-xs">
-                        {client.company.substring(0, 2).toUpperCase()}
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-gray-500 font-bold text-xs overflow-hidden ${client.logo ? "bg-white" : "bg-gray-100"}`}>
+                        {client.logo ? (
+                          <img src={client.logo} alt={client.company} className="w-full h-full object-contain" />
+                        ) : (
+                          client.company.substring(0, 2).toUpperCase()
+                        )}
                       </div>
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900 group-hover:underline">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-gray-900 group-hover:underline truncate">
                           {client.name}
                         </div>
-                        <div className="text-xs text-gray-500">{client.company}</div>
+                        <div className="text-xs text-gray-500 truncate">{client.company}</div>
                       </div>
                     </div>
                   </td>
@@ -296,28 +335,6 @@ export default function ClientsPage() {
                     <span className="text-xs font-medium px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
                       {client.serviceType}
                     </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div 
-                      className="flex justify-center" 
-                      onClick={(e) => e.stopPropagation()} // Prevent row click when changing status
-                    >
-                      <Select 
-                        defaultValue={client.status}
-                        onValueChange={(value) => {
-                          updateClientStatus(client.id, value as Client['status']);
-                        }}
-                      >
-                        <SelectTrigger className={`h-7 text-xs w-[130px] rounded-full ${getStatusColor(client.status)}`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="completado">Completado</SelectItem>
-                          <SelectItem value="en_proceso">En Proceso</SelectItem>
-                          <SelectItem value="sin_exito">Sin Éxito</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
                   </td>
                   <td className="py-3 pl-4 text-right pr-2">
                     <button className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors">
@@ -351,8 +368,12 @@ export default function ClientsPage() {
 
             <div className="mt-8">
               <div className="flex items-center gap-4 mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xl shadow-inner">
-                  {selectedClient.company.substring(0, 2).toUpperCase()}
+                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-gray-500 font-bold text-xl shadow-inner overflow-hidden ${selectedClient.logo ? "bg-white" : "bg-gray-100"}`}>
+                  {selectedClient.logo ? (
+                    <img src={selectedClient.logo} alt={selectedClient.company} className="w-full h-full object-contain" />
+                  ) : (
+                    selectedClient.company.substring(0, 2).toUpperCase()
+                  )}
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">{selectedClient.name}</h2>
@@ -392,6 +413,22 @@ export default function ClientsPage() {
                         <MapPin className="h-3 w-3" /> {selectedClient.location}
                       </span>
                     </div>
+                    {selectedClient.phone && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Teléfono</span>
+                        <span className="font-medium text-gray-900 flex items-center gap-1">
+                          <Phone className="h-3 w-3" /> {selectedClient.phone}
+                        </span>
+                      </div>
+                    )}
+                    {selectedClient.email && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Correo</span>
+                        <span className="font-medium text-gray-900 flex items-center gap-1">
+                          <Mail className="h-3 w-3" /> {selectedClient.email}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-gray-500">Fecha de Registro</span>
                       <span className="font-medium text-gray-900 flex items-center gap-1">
@@ -401,12 +438,6 @@ export default function ClientsPage() {
                     <div className="flex justify-between">
                       <span className="text-gray-500">Tipo de Servicio</span>
                       <span className="font-medium text-gray-900">{selectedClient.serviceType}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-500">Estado Actual</span>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(selectedClient.status)}`}>
-                        {selectedClient.status.replace("_", " ")}
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -473,6 +504,34 @@ export default function ClientsPage() {
             </div>
             
             <form onSubmit={handleCreateClient} className="space-y-4">
+              {/* Logo Upload */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-gray-700">Logo de la Empresa</label>
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoChange}
+                      className="hidden"
+                      id="logo-upload"
+                    />
+                    <label
+                      htmlFor="logo-upload"
+                      className="flex items-center gap-2 w-full px-3 py-2 border border-gray-200 border-dashed rounded-lg text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {newClientData.logo ? "Logo seleccionado" : "Subir logo (imagen)"}
+                    </label>
+                  </div>
+                  {newClientData.logo && (
+                    <div className="w-10 h-10 rounded-lg border border-gray-200 overflow-hidden shrink-0">
+                      <img src={newClientData.logo} alt="Preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-gray-700">Nombre del Contacto</label>
@@ -498,43 +557,90 @@ export default function ClientsPage() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700">Direccion</label>
-                <input 
-                  required
-                  type="text" 
-                  value={newClientData.location}
-                  onChange={(e) => setNewClientData({...newClientData, location: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
-                  placeholder="Ej. Lima, Perú"
-                />
+              {/* Phone and Email */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Teléfono</label>
+                  <div className="flex gap-2">
+                    <Select
+                      value={newClientData.phoneCode}
+                      onValueChange={(value) => setNewClientData({...newClientData, phoneCode: value})}
+                    >
+                      <SelectTrigger className="w-[100px]">
+                        <SelectValue placeholder="Código" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="+52">🇲🇽 +52</SelectItem>
+                        <SelectItem value="+1">🇺🇸 +1</SelectItem>
+                        <SelectItem value="+57">🇨🇴 +57</SelectItem>
+                        <SelectItem value="+51">🇵🇪 +51</SelectItem>
+                        <SelectItem value="+54">🇦🇷 +54</SelectItem>
+                        <SelectItem value="+56">🇨🇱 +56</SelectItem>
+                        <SelectItem value="+34">🇪🇸 +34</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <div className="relative flex-1">
+                      <Phone className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                      <input 
+                        type="tel" 
+                        maxLength={10}
+                        value={newClientData.phoneNumber}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                          setNewClientData({...newClientData, phoneNumber: value});
+                        }}
+                        className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                        placeholder="123 456 7890"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Correo Electrónico</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                    <input 
+                      type="email" 
+                      value={newClientData.email}
+                      onChange={(e) => setNewClientData({...newClientData, email: e.target.value})}
+                      className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                      placeholder="contacto@empresa.com"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700">Tipo de Servicio</label>
-                  <input 
-                    required
-                    type="text" 
-                    value={newClientData.serviceType}
-                    onChange={(e) => setNewClientData({...newClientData, serviceType: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
-                    placeholder="Ej. Carga Pesada"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700">Estado Inicial</label>
-                  <Select 
-                    value={newClientData.status}
-                    onValueChange={(value) => setNewClientData({...newClientData, status: value as any})}
+                  <label className="text-sm font-medium text-gray-700">País</label>
+                  <Select
+                    value={newClientData.country}
+                    onValueChange={(value) => setNewClientData({...newClientData, country: value, region: ""})}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Seleccionar estado" />
+                      <SelectValue placeholder="Seleccionar País" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="en_proceso">En Proceso</SelectItem>
-                      <SelectItem value="completado">Completado</SelectItem>
-                      <SelectItem value="sin_exito">Sin Éxito</SelectItem>
+                      {Object.keys(LOCATIONS).map((country) => (
+                        <SelectItem key={country} value={country}>{country}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Estado / Región</label>
+                  <Select
+                    value={newClientData.region}
+                    onValueChange={(value) => setNewClientData({...newClientData, region: value})}
+                    disabled={!newClientData.country}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar Estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {newClientData.country && LOCATIONS[newClientData.country as keyof typeof LOCATIONS]?.map((region) => (
+                        <SelectItem key={region} value={region}>{region}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
