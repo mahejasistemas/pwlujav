@@ -25,7 +25,7 @@ export default function CotizacionesPage() {
   const [loading, setLoading] = useState(true);
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [filter, setFilter] = useState<'all' | 'pendiente' | 'aprobada' | 'rechazada'>('all');
 
   // Load Quotes
   useEffect(() => {
@@ -48,10 +48,7 @@ export default function CotizacionesPage() {
   }, []);
 
   // Filter Logic
-  const filteredQuotes = quotes.filter(q => {
-    const quoteStatus = q.status as string;
-    return filter === 'all' || quoteStatus === filter;
-  });
+  const filteredQuotes = quotes.filter(q => filter === 'all' || q.status === filter);
   
   // Stats
   const thisMonth = new Date().toISOString().slice(0, 7);
@@ -78,7 +75,7 @@ export default function CotizacionesPage() {
         </div>
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-          {['all', 'pending', 'approved', 'rejected'].map((f) => (
+          {['all', 'pendiente', 'aprobada', 'rechazada'].map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f as any)}
@@ -87,7 +84,7 @@ export default function CotizacionesPage() {
               }`}
             >
               <span className="capitalize">
-                {f === 'all' ? 'Todas' : f === 'pending' ? 'Pendientes' : f === 'approved' ? 'Aprobadas' : 'Rechazadas'}
+                {f === 'all' ? 'Todas' : f}
               </span>
               <span className="bg-white border border-gray-200 px-2 py-0.5 rounded-full text-xs">
                 {quotes.filter(q => f === 'all' || q.status === f).length}
