@@ -32,6 +32,12 @@ export default function EquiposPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!db) {
+      console.error("Firebase DB not initialized");
+      setLoading(false);
+      return;
+    }
+
     // Fetch Users first to map IDs to data
     const unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => {
       const usersMap: Record<string, UserData> = {};

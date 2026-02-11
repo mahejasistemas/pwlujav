@@ -65,13 +65,12 @@ export default function ClientsPage() {
 
   // Load clients from Firebase Realtime
   useEffect(() => {
-    const firestore = db;
-    if (!firestore) {
+    if (!db) {
       console.error("Firebase DB not initialized");
       setLoading(false);
       return;
     }
-    const q = query(collection(firestore, "clients"), orderBy("date", "desc"));
+    const q = query(collection(db, "clients"), orderBy("date", "desc"));
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const clientsData: Client[] = [];
@@ -117,8 +116,7 @@ export default function ClientsPage() {
     e.preventDefault();
     
     try {
-      const firestore = db;
-      if (!firestore) {
+      if (!db) {
         toast.error("No se pudo conectar a la base de datos");
         return;
       }
@@ -137,7 +135,7 @@ export default function ClientsPage() {
         reports: []
       };
       
-      await addDoc(collection(firestore, "clients"), newClient);
+      await addDoc(collection(db, "clients"), newClient);
       
       setIsCreateModalOpen(false);
       // Reset form
@@ -160,9 +158,8 @@ export default function ClientsPage() {
 
   const updateClientStatus = async (clientId: string, newStatus: Client['status']) => {
     try {
-      const firestore = db;
-      if (!firestore) return;
-      const clientRef = doc(firestore, "clients", clientId);
+      if (!db) return;
+      const clientRef = doc(db, "clients", clientId);
       await updateDoc(clientRef, {
         status: newStatus
       });
