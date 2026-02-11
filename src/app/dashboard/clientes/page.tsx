@@ -65,6 +65,11 @@ export default function ClientsPage() {
 
   // Load clients from Firebase Realtime
   useEffect(() => {
+    if (!db) {
+      console.error("Firebase DB not initialized");
+      setLoading(false);
+      return;
+    }
     const q = query(collection(db, "clients"), orderBy("date", "desc"));
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -111,6 +116,11 @@ export default function ClientsPage() {
     e.preventDefault();
     
     try {
+      if (!db) {
+        toast.error("No se pudo conectar a la base de datos");
+        return;
+      }
+
       const newClient = {
         name: newClientData.name,
         company: newClientData.company,
@@ -148,6 +158,7 @@ export default function ClientsPage() {
 
   const updateClientStatus = async (clientId: string, newStatus: Client['status']) => {
     try {
+      if (!db) return;
       const clientRef = doc(db, "clients", clientId);
       await updateDoc(clientRef, {
         status: newStatus

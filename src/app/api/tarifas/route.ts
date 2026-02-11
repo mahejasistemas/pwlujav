@@ -14,13 +14,12 @@ function parsePrice(value: any): number {
 
 export async function GET() {
   try {
-    if (!db) {
+    const firestore = db;
+    if (!firestore) {
       return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
     }
     
     // Fetch all tariffs
-    // Store in local variable to ensure type safety in closures/scopes
-    const firestore = db;
     const q = query(collection(firestore, "tarifas"));
     const snapshot = await getDocs(q);
     
@@ -48,10 +47,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    if (!db) {
+    const firestore = db;
+    if (!firestore) {
       return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
     }
-    const firestore = db;
 
     const body = await request.json();
     
