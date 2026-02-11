@@ -111,11 +111,13 @@ export default function UsersPage() {
         } catch (error) {
           console.error("Error verifying admin role:", error);
           router.push("/dashboard");
+        } finally {
+          setCheckingAuth(false);
         }
       } else {
         router.push("/login");
+        setCheckingAuth(false);
       }
-      setCheckingAuth(false);
     });
 
     return () => unsubscribe();
