@@ -36,9 +36,11 @@ export default function ReportsPage() {
   const quotesHistory: any[] = [];
 
   useEffect(() => {
+    if (!db) return;
+
     const fetchStats = async () => {
       try {
-        const coll = collection(db, "clients");
+        const coll = collection(db!, "clients");
         const snapshot = await getCountFromServer(coll);
         setTotalClients(snapshot.data().count);
       } catch (error) {
