@@ -87,12 +87,14 @@ export default function Navbar() {
   const [isIAOpen, setIsIAOpen] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    if (!auth || !db) return;
+
+    const unsubscribe = onAuthStateChanged(auth!, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         // Check admin role
-        const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-        if (userDoc.exists() && userDoc.data().role === 'admin') {
+        const userDoc = await getDoc(doc(db!, "users", currentUser.uid));
+        if (userDoc.exists() && userDoc.data()?.role === 'admin') {
           setIsAdmin(true);
           fetchUsers();
         }
@@ -103,8 +105,9 @@ export default function Navbar() {
   }, []);
 
   const fetchUsers = async () => {
+    if (!db) return;
     try {
-      const q = query(collection(db, "users"));
+      const q = query(collection(db!, "users"));
       const snapshot = await getDocs(q);
       const usersList = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -117,10 +120,11 @@ export default function Navbar() {
   };
 
   const fetchWorkspaces = async (userId: string) => {
+    if (!db) return;
     try {
       // In a real app, query based on membership. For now fetching all or user's created ones.
       // Simplification: Fetch all for admins, or just create a collection
-      const q = query(collection(db, "workspaces"));
+      const q = query(collection(db!, "workspaces"));
       const snapshot = await getDocs(q);
       const wsList = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -140,13 +144,14 @@ export default function Navbar() {
   };
 
   const handleCreateWorkspace = async () => {
+    if (!db) return;
     if (!newWorkspaceName || !newWorkspaceBase) {
       toast.error("Por favor completa el nombre y la base");
       return;
     }
 
     try {
-      await addDoc(collection(db, "workspaces"), {
+      await addDoc(collection(db!, "workspaces"), {
         name: newWorkspaceName,
         base: newWorkspaceBase,
         members: selectedUsers,

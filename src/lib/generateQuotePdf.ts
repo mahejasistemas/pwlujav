@@ -167,7 +167,7 @@ export const generateQuotePDF = async (quote: QuoteData) => {
     const pdfBytesModified = await pdfDoc.save();
 
     // 4. Trigger the browser to download the PDF document
-    const blob = new Blob([pdfBytesModified], { type: 'application/pdf' });
+    const blob = new Blob([pdfBytesModified.buffer as ArrayBuffer], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

@@ -28,18 +28,18 @@ export default function Login() {
     setLoading(true);
     setError(null);
     
-    if (!auth || !googleProvider) {
-      setError("Error de configuración: Firebase Auth o Google Provider no inicializado.");
+    if (!auth || !googleProvider || !db) {
+      setError("Error de configuración: Firebase Auth, Google Provider o Firestore no inicializado.");
       setLoading(false);
       return;
     }
 
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth!, googleProvider!);
       const user = result.user;
 
       // Check if user exists in Firestore
-      const userDocRef = doc(db, "users", user.uid);
+      const userDocRef = doc(db!, "users", user.uid);
       const userDoc = await getDoc(userDocRef);
 
       if (!userDoc.exists()) {
@@ -81,19 +81,19 @@ export default function Login() {
     setLoading(true);
     setError(null);
 
-    if (!auth) {
-      setError("Error de configuración: Firebase Auth no está inicializado. Verifica las variables de entorno.");
+    if (!auth || !db) {
+      setError("Error de configuración: Firebase Auth o Firestore no está inicializado. Verifica las variables de entorno.");
       setLoading(false);
       return;
     }
 
     try {
       if (isLogin) {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth!, email, password);
         const user = userCredential.user;
         
         // Update last login or create if missing (for legacy users)
-        const userDocRef = doc(db, "users", user.uid);
+        const userDocRef = doc(db!, "users", user.uid);
         const userDoc = await getDoc(userDocRef);
         
         if (!userDoc.exists()) {
@@ -117,7 +117,7 @@ export default function Login() {
         });
         router.push("/dashboard");
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const userCredential = await createUserWithEmailAndPassword(auth!, email, password);
         const user = userCredential.user;
         
         if (name) {
@@ -127,7 +127,7 @@ export default function Login() {
         }
 
         // Create user in Firestore
-        await setDoc(doc(db, "users", user.uid), {
+        await setDoc(doc(db!, "users", user.uid), {
           uid: user.uid,
           email: user.email,
           displayName: name,

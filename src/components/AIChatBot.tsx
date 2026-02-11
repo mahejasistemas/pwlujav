@@ -54,10 +54,10 @@ export default function AIChatBot({ isOpen, onClose, user }: AIChatBotProps) {
 
   // Load messages from Firestore
   useEffect(() => {
-    if (!user) return;
+    if (!user || !db) return;
 
     const q = query(
-      collection(db, `users/${user.uid}/messages`), 
+      collection(db!, `users/${user.uid}/messages`), 
       orderBy("timestamp", "asc")
     );
 
@@ -122,7 +122,7 @@ export default function AIChatBot({ isOpen, onClose, user }: AIChatBotProps) {
     setIsLoading(true);
     try {
       // 1. Add User Message
-      await addDoc(collection(db, `users/${user.uid}/messages`), {
+      await addDoc(collection(db!, `users/${user.uid}/messages`), {
         role: 'user',
         content: content,
         timestamp: serverTimestamp()
@@ -134,13 +134,13 @@ export default function AIChatBot({ isOpen, onClose, user }: AIChatBotProps) {
       // 3. Add Assistant Message
       if (result.error) {
         toast.error("Error al obtener respuesta de IA");
-        await addDoc(collection(db, `users/${user.uid}/messages`), {
+        await addDoc(collection(db!, `users/${user.uid}/messages`), {
           role: 'assistant',
           content: "⚠️ Error: " + result.error,
           timestamp: serverTimestamp()
         });
       } else if (result.text) {
-        await addDoc(collection(db, `users/${user.uid}/messages`), {
+        await addDoc(collection(db!, `users/${user.uid}/messages`), {
           role: 'assistant',
           content: result.text,
           timestamp: serverTimestamp()

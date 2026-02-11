@@ -200,10 +200,10 @@ export default function UsersPage() {
   };
 
   const handleSaveEdit = async () => {
-    if (!editingUser) return;
+    if (!db || !editingUser) return;
     
     try {
-      await updateDoc(doc(db, "users", editingUser.id), {
+      await updateDoc(doc(db!, "users", editingUser.id), {
         base: editForm.base,
         phoneNumber: editForm.phoneNumber,
         workSchedule: editForm.workSchedule,
