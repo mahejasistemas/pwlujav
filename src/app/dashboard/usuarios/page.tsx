@@ -92,13 +92,15 @@ export default function UsersPage() {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    if (!auth || !db) return;
+
+    const unsubscribe = onAuthStateChanged(auth!, async (user) => {
       if (user) {
         try {
-          const userDocRef = doc(db, "users", user.uid);
+          const userDocRef = doc(db!, "users", user.uid);
           const userDoc = await getDoc(userDocRef);
           
-          if (userDoc.exists() && userDoc.data().role === 'admin') {
+          if (userDoc.exists() && userDoc.data()?.role === 'admin') {
             setIsAuthorized(true);
           } else {
             toast.error("Acceso denegado", {
@@ -120,16 +122,18 @@ export default function UsersPage() {
   }, [router]);
 
   const fetchUsers = () => {
+    if (!db) return;
     setLoading(true);
     // Removed orderBy to avoid missing index issues initially. Sorting client-side instead.
-    const q = query(collection(db, "users"));
+    const q = query(collection(db!, "users"));
     
     // We use onSnapshot for real-time, but we can also trigger manual refresh
     // The existing useEffect sets up the listener.
   };
 
   useEffect(() => {
-    const q = query(collection(db, "users"));
+    if (!db) return;
+    const q = query(collection(db!, "users"));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const usersList = snapshot.docs.map(doc => ({
@@ -156,8 +160,9 @@ export default function UsersPage() {
   }, []);
 
   const handleUpdateRole = async (userId: string, newRole: "admin" | "user") => {
+    if (!db) return;
     try {
-      await updateDoc(doc(db, "users", userId), {
+      await updateDoc(doc(db!, "users", userId), {
         role: newRole
       });
       toast.success(`Rol actualizado a ${newRole}`);
@@ -168,8 +173,9 @@ export default function UsersPage() {
   };
 
   const handleUpdateStatus = async (userId: string, newStatus: "active" | "inactive") => {
+    if (!db) return;
     try {
-      await updateDoc(doc(db, "users", userId), {
+      await updateDoc(doc(db!, "users", userId), {
         status: newStatus
       });
       toast.success(`Usuario ${newStatus === 'active' ? 'activado' : 'desactivado'}`);
@@ -211,10 +217,11 @@ export default function UsersPage() {
   };
 
   const handleDeleteUser = async (user: UserData) => {
+    if (!db) return;
     if (!confirm(`¿Estás seguro de eliminar a ${user.displayName}? Esta acción eliminará sus datos de la plataforma.`)) return;
     
     try {
-      await deleteDoc(doc(db, "users", user.id));
+      await deleteDoc(doc(db!, "users", user.id));
       toast.success("Usuario eliminado correctamente");
     } catch (error) {
       console.error("Error deleting user:", error);
