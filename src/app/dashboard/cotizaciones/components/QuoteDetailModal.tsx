@@ -53,10 +53,6 @@ export function QuoteDetailModal({ quote, onClose }: QuoteDetailModalProps) {
                 <label className="text-xs text-gray-500">Nombre del Cliente</label>
                 <p className="font-medium text-gray-900">{quote.clientName}</p>
               </div>
-              <div>
-                <label className="text-xs text-gray-500">Proyecto</label>
-                <p className="font-medium text-gray-900">{quote.projectName}</p>
-              </div>
             </div>
 
             <div className="space-y-4">

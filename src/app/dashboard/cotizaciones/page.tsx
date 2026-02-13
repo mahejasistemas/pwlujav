@@ -8,7 +8,8 @@ import {
   Calendar, 
   TrendingUp,
   Inbox,
-  ArrowUpDown
+  ArrowUpDown,
+  MapPin
 } from "lucide-react";
 import { toast } from "sonner";
 import { db } from "@/lib/firebase";
@@ -26,6 +27,42 @@ export default function CotizacionesPage() {
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pendiente' | 'aprobada' | 'rechazada'>('all');
+
+  // CP Search State
+  const [cpQuery, setCpQuery] = useState("");
+  const [cpLoading, setCpLoading] = useState(false);
+  const [cpResult, setCpResult] = useState<{place: string, state: string} | null>(null);
+
+  // Handle CP Search
+  const handleCpSearch = async () => {
+    if (!/^\d{5}$/.test(cpQuery)) {
+      toast.error("Ingresa un código postal de 5 dígitos");
+      return;
+    }
+    
+    setCpLoading(true);
+    setCpResult(null);
+    
+    try {
+      const res = await fetch(`https://api.zippopotam.us/mx/${cpQuery}`);
+      if (!res.ok) throw new Error("Código postal no encontrado");
+      
+      const data = await res.json();
+      if (data.places && data.places.length > 0) {
+        const place = data.places[0];
+        setCpResult({
+          place: place["place name"],
+          state: place["state"]
+        });
+        toast.success(`Ubicación: ${place["place name"]}, ${place["state"]}`);
+      }
+    } catch (error) {
+      console.error("Error fetching CP:", error);
+      toast.error("No se encontró ubicación para este CP");
+    } finally {
+      setCpLoading(false);
+    }
+  };
 
   // Load Quotes
   useEffect(() => {
@@ -94,6 +131,41 @@ export default function CotizacionesPage() {
         </nav>
 
         <div className="p-4 border-t border-gray-200 bg-gray-50/50 space-y-3">
+          {/* CP Search Section */}
+          <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm mb-2">
+            <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+              <MapPin className="h-3 w-3" /> Consultar CP
+            </h3>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                placeholder="CP (5 dígitos)" 
+                maxLength={5}
+                className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                value={cpQuery}
+                onChange={(e) => setCpQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCpSearch()}
+              />
+              <button 
+                onClick={handleCpSearch}
+                disabled={cpLoading}
+                className="bg-blue-600 text-white px-2 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {cpLoading ? "..." : "Ver"}
+              </button>
+            </div>
+            {cpResult && (
+              <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
+                <p className="text-[10px] font-bold text-blue-700 leading-tight uppercase">
+                  {cpResult.place}
+                </p>
+                <p className="text-[9px] text-blue-600/80 font-medium">
+                  {cpResult.state}
+                </p>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
             <div className="flex justify-between items-center mb-1">
               <span className="text-xs text-gray-500 uppercase font-semibold flex items-center gap-1">
