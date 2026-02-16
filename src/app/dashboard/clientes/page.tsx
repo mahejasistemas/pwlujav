@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { 
-  Search, 
-  Plus, 
+import {
+  Search,
+  Plus,
   MoreHorizontal,
   ArrowUpDown,
   User,
@@ -20,7 +20,7 @@ import {
   Upload,
   Phone,
   Mail,
-  BarChart3
+  BarChart3,
 } from "lucide-react";
 import {
   Select,
@@ -30,8 +30,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, onSnapshot, updateDoc, deleteDoc, doc, query, orderBy, getDocs, where } from "firebase/firestore";
+import {
+  collection,
+  addDoc,
+  onSnapshot,
+  updateDoc,
+  deleteDoc,
+  doc,
+  query,
+  orderBy,
+  getDocs,
+  where,
+} from "firebase/firestore";
 import { toast } from "sonner";
+import { ClientsCharts } from "@/components/ClientsCharts";
 
 interface Client {
   id: string;
@@ -661,88 +673,7 @@ export default function ClientsPage() {
               <div className="flex items-center justify-between mb-8">
                 <h1 className="text-xl font-bold text-gray-900">Gráficos</h1>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      Total de clientes
-                    </span>
-                  </div>
-                  <div className="text-3xl font-bold text-gray-900">
-                    {clientMetrics.total}
-                  </div>
-                  <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gray-900 rounded-full transition-all"
-                      style={{
-                        width: "100%",
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      Clientes activos
-                    </span>
-                  </div>
-                  <div className="text-3xl font-bold text-gray-900">
-                    {clientMetrics.active}
-                  </div>
-                  <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 rounded-full transition-all"
-                      style={{
-                        width:
-                          clientMetrics.total > 0
-                            ? `${Math.min(
-                                100,
-                                (clientMetrics.active / clientMetrics.total) * 100,
-                              ).toFixed(0)}%`
-                            : "0%",
-                      }}
-                    />
-                  </div>
-                  <div className="text-[11px] text-gray-500">
-                    {clientMetrics.total > 0
-                      ? `${Math.round(
-                          (clientMetrics.active / clientMetrics.total) * 100,
-                        )}% de los clientes`
-                      : "Sin clientes registrados"}
-                  </div>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      Nuevos este mes
-                    </span>
-                  </div>
-                  <div className="text-3xl font-bold text-gray-900">
-                    {clientMetrics.newThisMonth}
-                  </div>
-                  <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-sky-500 rounded-full transition-all"
-                      style={{
-                        width:
-                          clientMetrics.total > 0
-                            ? `${Math.min(
-                                100,
-                                (clientMetrics.newThisMonth / clientMetrics.total) * 100,
-                              ).toFixed(0)}%`
-                            : "0%",
-                      }}
-                    />
-                  </div>
-                  <div className="text-[11px] text-gray-500">
-                    {clientMetrics.total > 0
-                      ? `${clientMetrics.newThisMonth} de ${clientMetrics.total} clientes creados este mes`
-                      : "Sin clientes registrados"}
-                  </div>
-                </div>
-              </div>
+              <ClientsCharts clients={clients} />
             </div>
           )}
         </div>
