@@ -25,6 +25,9 @@ interface ClientsChartsProps {
     createdAt?: string;
     date: string;
     serviceType: string;
+    quotesCount: number;
+    name: string;
+    company: string;
   }[];
 }
 
@@ -116,9 +119,56 @@ export function ClientsCharts({ clients }: ClientsChartsProps) {
       ? newClientsTrend[newClientsTrend.length - 1]?.value ?? 0
       : 0;
 
+  const inactiveClientsData = useMemo(() => {
+    const now = new Date();
+    const threshold = new Date(
+      now.getFullYear(),
+      now.getMonth() - 3,
+      now.getDate(),
+    );
+
+    const items = clients
+      .map((client) => {
+        const d = parseClientDate(client);
+        return { client, date: d };
+      })
+      .filter(
+        (item) =>
+          item.date !== null &&
+          (item.date as Date) < threshold,
+      )
+      .sort(
+        (a, b) =>
+          (b.client.quotesCount || 0) -
+          (a.client.quotesCount || 0),
+      )
+      .slice(0, 8);
+
+    return items.map(({ client }) => ({
+      label: client.company || client.name,
+      quotes: client.quotesCount || 0,
+    }));
+  }, [clients]);
+
+  const favoriteClientsData = useMemo(() => {
+    return [...clients]
+      .filter((client) => (client.quotesCount || 0) > 0)
+      .sort(
+        (a, b) =>
+          (b.quotesCount || 0) -
+          (a.quotesCount || 0),
+      )
+      .slice(0, 8)
+      .map((client) => ({
+        label: client.company || client.name,
+        quotes: client.quotesCount || 0,
+      }));
+  }, [clients]);
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <Card className="border border-gray-200">
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="border border-gray-200">
         <CardHeader className="pb-2">
           <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
             <span>Total de clientes</span>
@@ -155,9 +205,9 @@ export function ClientsCharts({ clients }: ClientsChartsProps) {
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
-      </Card>
+        </Card>
 
-      <Card className="border border-gray-200">
+        <Card className="border border-gray-200">
         <CardHeader className="pb-2">
           <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
             <span>Clientes activos</span>
@@ -216,9 +266,9 @@ export function ClientsCharts({ clients }: ClientsChartsProps) {
             </AreaChart>
           </ResponsiveContainer>
         </CardContent>
-      </Card>
+        </Card>
 
-      <Card className="border border-gray-200">
+        <Card className="border border-gray-200">
         <CardHeader className="pb-2">
           <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
             <span>Nuevos este mes</span>
@@ -265,7 +315,113 @@ export function ClientsCharts({ clients }: ClientsChartsProps) {
             </LineChart>
           </ResponsiveContainer>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="border border-gray-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
+              <span>Clientes inactivos (+3 meses)</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 h-52">
+            {inactiveClientsData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                Sin clientes inactivos registrados
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={inactiveClientsData}
+                  margin={{ top: 8, left: 0, right: 8, bottom: 16 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 10 }}
+                    interval={0}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 10 }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(248, 113, 113, 0.12)" }}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: "1px solid #fecaca",
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar
+                    dataKey="quotes"
+                    radius={[4, 4, 0, 0]}
+                    fill="#ef4444"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border border-gray-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
+              <span>Clientes favoritos</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 h-52">
+            {favoriteClientsData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                Sin clientes con cotizaciones registradas
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={favoriteClientsData}
+                  layout="vertical"
+                  margin={{ top: 8, left: 0, right: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    allowDecimals={false}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 10 }}
+                  />
+                  <YAxis
+                    dataKey="label"
+                    type="category"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 10 }}
+                    width={100}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(248, 113, 113, 0.12)" }}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: "1px solid #fecaca",
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar
+                    dataKey="quotes"
+                    radius={[0, 4, 4, 0]}
+                    fill="#ef4444"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

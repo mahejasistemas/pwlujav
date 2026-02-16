@@ -654,9 +654,9 @@ export default function ClientsPage() {
                             </div>
                           </div>
                           <div className="pt-2 border-t border-gray-100 text-xs text-gray-600 flex items-center justify-between">
-                            <span className="font-medium">Trabajadores</span>
+                            <span className="font-medium">Clientes</span>
                             <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-[11px] font-medium text-gray-800">
-                              {company.employeesCount} {company.employeesCount === 1 ? "empleado" : "empleados"}
+                              {company.employeesCount} {company.employeesCount === 1 ? "cliente" : "clientes"}
                             </span>
                           </div>
                         </div>
