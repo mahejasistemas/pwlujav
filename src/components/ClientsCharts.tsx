@@ -31,6 +31,21 @@ interface ClientsChartsProps {
   }[];
 }
 
+const MONTH_NAMES = [
+  "Ene",
+  "Feb",
+  "Mar",
+  "Abr",
+  "May",
+  "Jun",
+  "Jul",
+  "Ago",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dic",
+];
+
 const parseClientDate = (client: ClientsChartsProps["clients"][number]): Date | null => {
   if (client.createdAt) {
     const d = new Date(client.createdAt);
@@ -44,42 +59,19 @@ const parseClientDate = (client: ClientsChartsProps["clients"][number]): Date | 
 };
 
 export function ClientsCharts({ clients }: ClientsChartsProps) {
-  const statusData = useMemo(() => {
-    const counters = {
-      completado: 0,
-      en_proceso: 0,
-      sin_exito: 0,
-    };
-
-    clients.forEach((client) => {
-      counters[client.status] = counters[client.status] + 1;
-    });
-
-    return [
-      { status: "Completado", value: counters.completado },
-      { status: "En proceso", value: counters.en_proceso },
-      { status: "Sin éxito", value: counters.sin_exito },
-    ];
-  }, [clients]);
-
-  const serviceTypeData = useMemo(() => {
-    const map = new Map<string, number>();
-
-    clients
+  const activeClientsQuotesData = useMemo(() => {
+    return clients
       .filter((client) => client.status !== "sin_exito")
-      .forEach((client) => {
-        const key = client.serviceType || "Otro";
-        map.set(key, (map.get(key) || 0) + 1);
-      });
-
-    const entries = Array.from(map.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-
-    return entries.map(([serviceType, value]) => ({
-      serviceType,
-      value,
-    }));
+      .sort(
+        (a, b) =>
+          (b.quotesCount || 0) -
+          (a.quotesCount || 0),
+      )
+      .slice(0, 8)
+      .map((client) => ({
+        label: client.name,
+        quotes: client.quotesCount || 0,
+      }));
   }, [clients]);
 
   const newClientsTrend = useMemo(() => {
@@ -89,7 +81,7 @@ export function ClientsCharts({ clients }: ClientsChartsProps) {
     for (let i = 5; i >= 0; i -= 1) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       months.push({
-        label: `${d.getMonth() + 1}/${String(d.getFullYear()).slice(-2)}`,
+        label: MONTH_NAMES[d.getMonth()],
         year: d.getFullYear(),
         month: d.getMonth(),
         value: 0,
@@ -167,105 +159,44 @@ export function ClientsCharts({ clients }: ClientsChartsProps) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="border border-gray-200">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
-            <span>Total de clientes</span>
-            <span className="text-xs text-gray-900 font-semibold">
-              {totalClients}
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 h-52">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={statusData} margin={{ top: 8, left: -20, right: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey="status"
-                tickLine={false}
-                axisLine={false}
-                tick={{ fontSize: 10 }}
-              />
-              <YAxis
-                allowDecimals={false}
-                tickLine={false}
-                axisLine={false}
-                tick={{ fontSize: 10 }}
-              />
-              <Tooltip
-                cursor={{ fill: "rgba(248, 113, 113, 0.12)" }}
-                contentStyle={{
-                  borderRadius: 8,
-                  border: "1px solid #fecaca",
-                  fontSize: 12,
-                }}
-              />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]} fill="#ef4444" />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-        </Card>
-
-        <Card className="border border-gray-200">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
-            <span>Clientes activos</span>
-            <span className="text-xs text-gray-900 font-semibold">
-              {activeClients}
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 h-52">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={serviceTypeData}
-              margin={{ top: 8, left: -20, right: 8 }}
-            >
-              <defs>
-                <linearGradient id="activeArea" x1="0" y1="0" x2="0" y2="1">
-                  <stop
-                    offset="5%"
-                    stopColor="#ef4444"
-                    stopOpacity={0.8}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor="#ef4444"
-                    stopOpacity={0.05}
-                  />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey="serviceType"
-                tickLine={false}
-                axisLine={false}
-                tick={{ fontSize: 10 }}
-              />
-              <YAxis
-                allowDecimals={false}
-                tickLine={false}
-                axisLine={false}
-                tick={{ fontSize: 10 }}
-              />
-              <Tooltip
-                cursor={{ strokeDasharray: "3 3" }}
-                contentStyle={{
-                  borderRadius: 8,
-                  border: "1px solid #fecaca",
-                  fontSize: 12,
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke="#ef4444"
-                fill="url(#activeArea)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CardContent>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
+              <span>Total de clientes</span>
+              <span className="text-xs text-gray-900 font-semibold">
+                {totalClients}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 h-52">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={newClientsTrend} margin={{ top: 8, left: -20, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 10 }}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 10 }}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(248, 113, 113, 0.12)" }}
+                  contentStyle={{
+                    borderRadius: 8,
+                    border: "1px solid #fecaca",
+                    fontSize: 12,
+                  }}
+                />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} fill="#ef4444" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
         </Card>
 
         <Card className="border border-gray-200">
@@ -315,6 +246,61 @@ export function ClientsCharts({ clients }: ClientsChartsProps) {
             </LineChart>
           </ResponsiveContainer>
         </CardContent>
+        </Card>
+      </div>
+
+      <div>
+        <Card className="border border-gray-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center justify-between">
+              <span>Clientes activos</span>
+              <span className="text-xs text-gray-900 font-semibold">
+                {activeClients}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 h-64">
+            {activeClientsQuotesData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                Sin clientes activos con cotizaciones
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={activeClientsQuotesData}
+                  margin={{ top: 8, left: -20, right: 8, bottom: 24 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 10 }}
+                    interval={0}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 10 }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(248, 113, 113, 0.12)" }}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: "1px solid #fecaca",
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar
+                    dataKey="quotes"
+                    radius={[4, 4, 0, 0]}
+                    fill="#ef4444"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
         </Card>
       </div>
 
