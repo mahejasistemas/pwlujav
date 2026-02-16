@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   Search, 
   Plus, 
@@ -19,7 +19,8 @@ import {
   Clock,
   Upload,
   Phone,
-  Mail
+  Mail,
+  BarChart3
 } from "lucide-react";
 import {
   Select,
@@ -29,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, onSnapshot, updateDoc, doc, query, orderBy } from "firebase/firestore";
+import { collection, addDoc, onSnapshot, updateDoc, deleteDoc, doc, query, orderBy, getDocs, where } from "firebase/firestore";
 import { toast } from "sonner";
 
 interface Client {
@@ -45,6 +46,14 @@ interface Client {
   logo?: string;
   phone?: string;
   email?: string;
+  createdAt?: string;
+}
+
+interface Company {
+  id: string;
+  name: string;
+  employeesCount: number;
+  logo?: string;
 }
 
 const LOCATIONS = {
@@ -60,8 +69,30 @@ const LOCATIONS = {
 export default function ClientsPage() {
   // Clients state
   const [clients, setClients] = useState<Client[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState<"clientes" | "empresas" | "graficos">("clientes");
+  const [menuClientId, setMenuClientId] = useState<string | null>(null);
+  const [loadingCompanies, setLoadingCompanies] = useState(true);
+
+  const companyLogos = useMemo(() => {
+    const logos: Record<string, string> = {};
+    clients.forEach((client) => {
+      if (client.company && client.logo && !logos[client.company]) {
+        logos[client.company] = client.logo;
+      }
+    });
+    return logos;
+  }, [clients]);
+
+  const uniqueCompanyNames = useMemo(
+    () =>
+      Array.from(new Set(companies.map((company) => company.name))).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [companies],
+  );
 
   // Load clients from Firebase Realtime
   useEffect(() => {
@@ -87,6 +118,29 @@ export default function ClientsPage() {
 
     return () => unsubscribe();
   }, []);
+
+  // Load companies
+  useEffect(() => {
+    if (!db) {
+      console.error("Firebase DB not initialized");
+      setLoadingCompanies(false);
+      return;
+    }
+    const q = query(collection(db, "companies"), orderBy("name", "asc"));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const companiesData: Company[] = [];
+      querySnapshot.forEach((doc) => {
+        companiesData.push({ id: doc.id, ...doc.data() } as Company);
+      });
+      setCompanies(companiesData);
+      setLoadingCompanies(false);
+    }, (error) => {
+      console.error("Error fetching companies:", error);
+      setLoadingCompanies(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
   
   // Create Client State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -98,7 +152,22 @@ export default function ClientsPage() {
     logo: "",
     phoneCode: "+52",
     phoneNumber: "",
-    email: ""
+    email: "",
+    serviceType: "Carga General"
+  });
+  const [companySelectionMode, setCompanySelectionMode] = useState<"existing" | "new">("new");
+
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [editClientData, setEditClientData] = useState({
+    name: "",
+    company: "",
+    country: "",
+    region: "",
+    logo: "",
+    phoneCode: "+52",
+    phoneNumber: "",
+    email: "",
+    serviceType: "Carga General"
   });
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,6 +178,82 @@ export default function ClientsPage() {
         setNewClientData(prev => ({ ...prev, logo: reader.result as string }));
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleEditLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditClientData(prev => ({ ...prev, logo: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const clientMetrics = useMemo(() => {
+    const total = clients.length;
+    const active = clients.filter((client) => client.status !== "sin_exito").length;
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const isSameMonth = (date: Date) =>
+      date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+
+    const parseClientDate = (client: Client): Date | null => {
+      if (client.createdAt) {
+        const d = new Date(client.createdAt);
+        if (!isNaN(d.getTime())) return d;
+      }
+      if (client.date) {
+        const d = new Date(client.date);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    const newThisMonth = clients.filter((client) => {
+      const d = parseClientDate(client);
+      if (!d) return false;
+      return isSameMonth(d);
+    }).length;
+
+    return {
+      total,
+      active,
+      newThisMonth,
+    };
+  }, [clients]);
+
+  const syncCompanyForNewClient = async (companyName: string, logo?: string) => {
+    if (!db) return;
+    const trimmedName = companyName.trim();
+    if (!trimmedName) return;
+
+    const companiesCol = collection(db, "companies");
+    const q = query(companiesCol, where("name", "==", trimmedName));
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+      await addDoc(companiesCol, {
+        name: trimmedName,
+        employeesCount: 1,
+        ...(logo ? { logo } : {}),
+      });
+    } else {
+      const companyDoc = snapshot.docs[0];
+      const data = companyDoc.data();
+      const currentCount = (data.employeesCount as number) || 0;
+      const updatePayload: Partial<{ employeesCount: number; logo: string }> = {
+        employeesCount: currentCount + 1,
+      };
+      if (logo && !data.logo) {
+        updatePayload.logo = logo;
+      }
+      await updateDoc(companyDoc.ref, updatePayload);
     }
   };
 
@@ -125,9 +270,10 @@ export default function ClientsPage() {
         name: newClientData.name,
         company: newClientData.company,
         date: new Date().toLocaleDateString(),
+        createdAt: new Date().toISOString(),
         location: `${newClientData.region}, ${newClientData.country}`,
         status: "en_proceso",
-        serviceType: "Carga General", // Default value
+        serviceType: newClientData.serviceType,
         logo: newClientData.logo,
         phone: `${newClientData.phoneCode} ${newClientData.phoneNumber}`,
         email: newClientData.email,
@@ -136,6 +282,7 @@ export default function ClientsPage() {
       };
       
       await addDoc(collection(db, "clients"), newClient);
+      await syncCompanyForNewClient(newClientData.company, newClientData.logo);
       
       setIsCreateModalOpen(false);
       // Reset form
@@ -147,8 +294,10 @@ export default function ClientsPage() {
         logo: "",
         phoneCode: "+52",
         phoneNumber: "",
-        email: ""
+        email: "",
+        serviceType: "Carga General"
       });
+      setCompanySelectionMode("new");
       toast.success("Cliente creado exitosamente");
     } catch (error) {
       console.error("Error creating client:", error);
@@ -170,6 +319,81 @@ export default function ClientsPage() {
     }
   };
 
+  const handleDeleteClient = async (clientId: string) => {
+    try {
+      if (!db) return;
+      const confirmDelete = window.confirm("¿Quieres eliminar este cliente?");
+      if (!confirmDelete) return;
+      const clientRef = doc(db, "clients", clientId);
+      await deleteDoc(clientRef);
+      toast.success("Cliente eliminado");
+    } catch (error) {
+      console.error("Error deleting client:", error);
+      toast.error("Error al eliminar el cliente");
+    }
+  };
+
+  const openEditClient = (client: Client) => {
+    let country = "";
+    let region = "";
+    if (client.location) {
+      const parts = client.location.split(",").map((p) => p.trim());
+      if (parts.length >= 2) {
+        region = parts[0];
+        country = parts.slice(1).join(", ");
+      }
+    }
+
+    let phoneCode = "+52";
+    let phoneNumber = "";
+    if (client.phone) {
+      const segments = client.phone.split(" ").filter(Boolean);
+      if (segments.length > 0 && segments[0].startsWith("+")) {
+        phoneCode = segments[0];
+        phoneNumber = segments.slice(1).join("").replace(/\D/g, "").slice(0, 10);
+      } else {
+        phoneNumber = client.phone.replace(/\D/g, "").slice(0, 10);
+      }
+    }
+
+    setEditClientData({
+      name: client.name,
+      company: client.company,
+      country,
+      region,
+      logo: client.logo || "",
+      phoneCode,
+      phoneNumber,
+      email: client.email || "",
+      serviceType: client.serviceType || "Carga General",
+    });
+    setEditingClient(client);
+  };
+
+  const handleUpdateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (!db || !editingClient) return;
+      const clientRef = doc(db, "clients", editingClient.id);
+
+      await updateDoc(clientRef, {
+        name: editClientData.name,
+        company: editClientData.company,
+        location: `${editClientData.region}, ${editClientData.country}`,
+        phone: `${editClientData.phoneCode} ${editClientData.phoneNumber}`,
+        email: editClientData.email,
+        serviceType: editClientData.serviceType,
+        logo: editClientData.logo,
+      });
+
+      setEditingClient(null);
+      toast.success("Cliente actualizado");
+    } catch (error) {
+      console.error("Error updating client:", error);
+      toast.error("Error al actualizar el cliente");
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "completado": return "bg-green-100 text-green-700 border-green-200";
@@ -188,175 +412,340 @@ export default function ClientsPage() {
     }
   };
 
-  // Calculate stats
-  const totalClients = clients.length;
-  const activeClients = clients.filter(c => c.status === "en_proceso").length;
-  // Simple check for "new" clients (registered this month)
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-  const newClients = clients.filter(c => {
-    const [day, month, year] = c.date.split('/').map(Number);
-    // Assuming format dd/mm/yyyy or similar where parts are predictable enough for this demo
-    // If date parsing fails, we ignore it
-    if (!month || !year) return false;
-    return (month - 1) === currentMonth && year === currentYear;
-  }).length;
-
   return (
     <div className="p-8 max-w-[1600px] mx-auto bg-white min-h-screen font-sans relative">
-      
-      {/* 1. Header Section */}
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-xl font-bold text-gray-900">Todos los Clientes</h1>
-        <button 
-          onClick={() => setIsCreateModalOpen(true)}
-          className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors flex items-center gap-2"
-        >
-          Nuevo Cliente
-          <Plus className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* 2. Stats Overview Section */}
-      <div className="mb-10">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Card 1: Total Clientes */}
-          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
-                <User className="h-5 w-5" />
-              </div>
-              <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
-                100%
-              </span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Total de Clientes</p>
-              <h3 className="text-2xl font-bold text-gray-900 mt-1">{totalClients}</h3>
-              <p className="text-xs text-gray-400 mt-1">Base de datos activa</p>
-            </div>
+      <div className="flex gap-6 items-start">
+        <div className="w-48 border-r border-gray-100 pr-4 sticky top-8 self-start">
+          <div className="mb-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            Secciones
           </div>
-
-          {/* Card 2: Clientes Nuevos */}
-          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
-                <Plus className="h-5 w-5" />
-              </div>
-              <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
-                Este mes
-              </span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Clientes Nuevos</p>
-              <h3 className="text-2xl font-bold text-gray-900 mt-1">{newClients}</h3>
-              <p className="text-xs text-gray-400 mt-1">Registrados este mes</p>
-            </div>
-          </div>
-
-          {/* Card 3: Clientes Activos */}
-          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center text-green-600">
-                <Building2 className="h-5 w-5" />
-              </div>
-              <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
-                En Proceso
-              </span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Clientes Activos</p>
-              <h3 className="text-2xl font-bold text-gray-900 mt-1">{activeClients}</h3>
-              <p className="text-xs text-gray-400 mt-1">Con envíos recientes</p>
-            </div>
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              onClick={() => setActiveSection("clientes")}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                activeSection === "clientes"
+                  ? "bg-black text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <User className="h-4 w-4" />
+              <span>Clientes</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection("empresas")}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                activeSection === "empresas"
+                  ? "bg-black text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Building2 className="h-4 w-4" />
+              <span>Empresas</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection("graficos")}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                activeSection === "graficos"
+                  ? "bg-black text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <BarChart3 className="h-4 w-4" />
+              <span>Gráficos</span>
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* 3. Toolbar Section */}
-      <div className="flex items-center justify-between mb-4">
-        <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-full text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-          <ArrowUpDown className="h-3.5 w-3.5" />
-          Ordenar
-        </button>
-        <div className="flex items-center gap-2 text-gray-400 hover:text-gray-600 cursor-pointer group">
-          <Search className="h-4 w-4 group-hover:text-gray-600" />
-          <span className="text-sm">Buscar</span>
-        </div>
-      </div>
-
-      {/* 4. Minimal Table */}
-      <div className="w-full">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="py-3 pr-4 text-xs font-semibold text-gray-500 pl-1 w-[40%]">Nombre / Empresa</th>
-              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-[15%]">
-                 <div className="flex items-center gap-1 cursor-pointer hover:text-gray-700">
-                  Fecha <ArrowUpDown className="h-3 w-3" />
-                </div>
-              </th>
-              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-[20%]">Ubicación</th>
-              <th className="py-3 px-4 text-xs font-semibold text-gray-500 w-[20%]">Tipo de Servicio</th>
-              <th className="py-3 pl-4 text-xs font-semibold text-gray-500 w-[5%] text-right pr-2">
-                <Plus className="h-4 w-4 ml-auto cursor-pointer hover:text-gray-700" />
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {loading ? (
-              <tr>
-                <td colSpan={6} className="py-12 text-center text-gray-400 text-sm">
-                  Cargando clientes...
-                </td>
-              </tr>
-            ) : clients.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="py-12 text-center text-gray-400 text-sm">
-                  No hay clientes registrados. Haz clic en "Nuevo Cliente" para empezar.
-                </td>
-              </tr>
-            ) : (
-              clients.map((client) => (
-                <tr 
-                  key={client.id} 
-                  className="group hover:bg-gray-50/50 transition-colors cursor-pointer"
-                  onClick={() => setSelectedClient(client)}
+        <div className="flex-1">
+          {activeSection === "clientes" && (
+            <>
+              <div className="flex items-center justify-between mb-6">
+                <h1 className="text-xl font-bold text-gray-900">Todos los Clientes</h1>
+                <button 
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors flex items-center gap-2"
                 >
-                  <td className="py-3 pr-4 pl-1">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-gray-500 font-bold text-xs overflow-hidden ${client.logo ? "bg-white" : "bg-gray-100"}`}>
-                        {client.logo ? (
-                          <img src={client.logo} alt={client.company} className="w-full h-full object-contain" />
-                        ) : (
-                          client.company.substring(0, 2).toUpperCase()
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-gray-900 group-hover:underline truncate">
-                          {client.name}
+                  Nuevo Cliente
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between mb-4">
+                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-full text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                  Ordenar
+                </button>
+                <div className="flex items-center gap-2 text-gray-400 hover:text-gray-600 cursor-pointer group">
+                  <Search className="h-4 w-4 group-hover:text-gray-600" />
+                  <span className="text-sm">Buscar</span>
+                </div>
+              </div>
+
+              <div className="w-full">
+                {loading ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    Cargando clientes...
+                  </div>
+                ) : clients.length === 0 ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    No hay clientes registrados. Haz clic en "Nuevo Cliente" para empezar.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {clients.map((client) => (
+                      <div
+                        key={client.id}
+                        onClick={() => setSelectedClient(client)}
+                        className="w-full h-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md hover:border-gray-300 transition-all group cursor-pointer relative flex flex-col"
+                      >
+                        <div className="flex-1">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-gray-500 font-bold text-xs overflow-hidden ${client.logo ? "bg-white" : "bg-gray-100"}`}>
+                              {client.logo ? (
+                                <img src={client.logo} alt={client.company} className="w-full h-full object-contain" />
+                              ) : (
+                                (client.company?.slice(0, 2)?.toUpperCase() || "—")
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-semibold text-gray-900 truncate group-hover:underline">
+                                {client.name || ""}
+                              </div>
+                              <div className="text-xs text-gray-500 truncate">
+                                {client.company || ""}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="relative flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMenuClientId(menuClientId === client.id ? null : client.id);
+                              }}
+                              className="p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                            {menuClientId === client.id && (
+                              <div className="absolute right-0 mt-1 w-32 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEditClient(client);
+                                    setMenuClientId(null);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    setMenuClientId(null);
+                                    await handleDeleteClient(client.id);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"
+                                >
+                                  Borrar
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 truncate">{client.company}</div>
+
+                        <div className="flex items-center gap-1 mb-3 text-xs text-gray-500">
+                          <Calendar className="h-3 w-3" />
+                          <span>{client.date || ""}</span>
+                        </div>
+
+                        <div className="space-y-1.5 text-xs text-gray-600 mb-3">
+                          <div className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3 text-gray-400" />
+                            <span className="truncate">{client.location || ""}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Phone className="h-3 w-3 text-gray-400" />
+                            <span className="truncate">{client.phone ?? ""}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Mail className="h-3 w-3 text-gray-400" />
+                            <span className="truncate">{client.email ?? ""}</span>
+                          </div>
+                        </div>
+                        </div>
+
+                        <div className="mt-auto -mx-4 -mb-4 px-4 py-3 bg-[#e40014] border-t border-[#e40014] rounded-b-xl flex items-center justify-between">
+                          <span className="inline-flex items-center px-2 py-1 rounded-md bg-white text-[11px] font-medium text-[#e40014]">
+                            {client.serviceType || ""}
+                          </span>
+                          <div className="flex items-center gap-3 text-[11px] text-white/90">
+                            <div className="flex items-center gap-1">
+                              <Calculator className="h-3 w-3" />
+                              <span>{client.quotesCount ?? 0} cotizaciones</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <FileText className="h-3 w-3" />
+                              <span>{client.reports?.length ?? 0} reportes</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-sm text-gray-500">{client.date}</td>
-                  <td className="py-3 px-4 text-sm text-gray-500">{client.location}</td>
-                  <td className="py-3 px-4">
-                    <span className="text-xs font-medium px-2 py-1 bg-gray-100 text-gray-600 rounded-md">
-                      {client.serviceType}
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {activeSection === "empresas" && (
+            <div className="h-full flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h1 className="text-xl font-bold text-gray-900">Empresas</h1>
+              </div>
+              <div className="flex-1">
+                {loadingCompanies ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    Cargando empresas...
+                  </div>
+                ) : companies.length === 0 ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    Aún no hay empresas registradas. Crea un cliente para empezar.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {companies.map((company) => {
+                      const companyLogo = company.logo || companyLogos[company.name];
+                      return (
+                        <div
+                          key={company.id}
+                          className="w-full bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md hover:border-gray-300 transition-all"
+                        >
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 text-gray-500 font-bold text-xs overflow-hidden ${companyLogo ? "bg-white" : "bg-gray-100"}`}>
+                              {companyLogo ? (
+                                <img src={companyLogo} alt={company.name} className="w-full h-full object-contain" />
+                              ) : (
+                                company.name.slice(0, 2).toUpperCase()
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-gray-900 truncate">
+                                {company.name}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="pt-2 border-t border-gray-100 text-xs text-gray-600 flex items-center justify-between">
+                            <span className="font-medium">Trabajadores</span>
+                            <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-[11px] font-medium text-gray-800">
+                              {company.employeesCount} {company.employeesCount === 1 ? "empleado" : "empleados"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeSection === "graficos" && (
+            <div className="h-full flex flex-col">
+              <div className="flex items-center justify-between mb-8">
+                <h1 className="text-xl font-bold text-gray-900">Gráficos</h1>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Total de clientes
                     </span>
-                  </td>
-                  <td className="py-3 pl-4 text-right pr-2">
-                    <button className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  </div>
+                  <div className="text-3xl font-bold text-gray-900">
+                    {clientMetrics.total}
+                  </div>
+                  <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gray-900 rounded-full transition-all"
+                      style={{
+                        width: "100%",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Clientes activos
+                    </span>
+                  </div>
+                  <div className="text-3xl font-bold text-gray-900">
+                    {clientMetrics.active}
+                  </div>
+                  <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 rounded-full transition-all"
+                      style={{
+                        width:
+                          clientMetrics.total > 0
+                            ? `${Math.min(
+                                100,
+                                (clientMetrics.active / clientMetrics.total) * 100,
+                              ).toFixed(0)}%`
+                            : "0%",
+                      }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-gray-500">
+                    {clientMetrics.total > 0
+                      ? `${Math.round(
+                          (clientMetrics.active / clientMetrics.total) * 100,
+                        )}% de los clientes`
+                      : "Sin clientes registrados"}
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Nuevos este mes
+                    </span>
+                  </div>
+                  <div className="text-3xl font-bold text-gray-900">
+                    {clientMetrics.newThisMonth}
+                  </div>
+                  <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-sky-500 rounded-full transition-all"
+                      style={{
+                        width:
+                          clientMetrics.total > 0
+                            ? `${Math.min(
+                                100,
+                                (clientMetrics.newThisMonth / clientMetrics.total) * 100,
+                              ).toFixed(0)}%`
+                            : "0%",
+                      }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-gray-500">
+                    {clientMetrics.total > 0
+                      ? `${clientMetrics.newThisMonth} de ${clientMetrics.total} clientes creados este mes`
+                      : "Sin clientes registrados"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 5. Client Details Modal (Right Drawer style) */}
@@ -392,25 +781,6 @@ export default function ClientsPage() {
                 </div>
               </div>
 
-              {/* Quick Stats Grid */}
-              <div className="grid grid-cols-2 gap-4 mb-8">
-                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                  <div className="flex items-center gap-2 text-blue-700 mb-2">
-                    <Calculator className="h-4 w-4" />
-                    <span className="text-xs font-bold uppercase tracking-wide">Cotizaciones</span>
-                  </div>
-                  <div className="text-2xl font-bold text-blue-900">{selectedClient.quotesCount}</div>
-                </div>
-                <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
-                  <div className="flex items-center gap-2 text-purple-700 mb-2">
-                    <FileText className="h-4 w-4" />
-                    <span className="text-xs font-bold uppercase tracking-wide">Reportes</span>
-                  </div>
-                  <div className="text-2xl font-bold text-purple-900">{selectedClient.reports.length}</div>
-                </div>
-              </div>
-
-              {/* Info Details */}
               <div className="space-y-6">
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -452,43 +822,6 @@ export default function ClientsPage() {
                     </div>
                   </div>
                 </div>
-
-                {/* Reports List */}
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-gray-400" />
-                    Historial de Reportes
-                  </h3>
-                  <div className="space-y-2">
-                    {selectedClient.reports.length > 0 ? (
-                      selectedClient.reports.map((report) => (
-                        <div key={report.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-gray-200 hover:bg-gray-50 transition-all cursor-pointer group">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center text-gray-400 group-hover:text-gray-600">
-                              <FileText className="h-4 w-4" />
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{report.title}</div>
-                              <div className="text-xs text-gray-500">{report.date}</div>
-                            </div>
-                          </div>
-                          <ChevronDown className="h-4 w-4 text-gray-300 -rotate-90" />
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-sm text-gray-400 italic text-center py-4">No hay reportes disponibles</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-8 flex gap-3">
-                <button className="flex-1 bg-black text-white py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors">
-                  Nueva Cotización
-                </button>
-                <button className="flex-1 border border-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-                  Editar Cliente
-                </button>
               </div>
 
             </div>
@@ -496,7 +829,204 @@ export default function ClientsPage() {
         </div>
       )}
 
-      {/* 6. Create Client Modal */}
+      {/* 6. Edit Client Modal */}
+      {editingClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
+            onClick={() => setEditingClient(null)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Editar Cliente</h2>
+              <button 
+                onClick={() => setEditingClient(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleUpdateClient} className="space-y-4">
+              {/* Logo Upload */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-gray-700">Logo de la Empresa</label>
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleEditLogoChange}
+                      className="hidden"
+                      id="edit-logo-upload"
+                    />
+                    <label
+                      htmlFor="edit-logo-upload"
+                      className="flex items-center gap-2 w-full px-3 py-2 border border-gray-200 border-dashed rounded-lg text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {editClientData.logo ? "Logo seleccionado" : "Subir logo (imagen)"}
+                    </label>
+                  </div>
+                  {editClientData.logo && (
+                    <div className="w-10 h-10 rounded-lg border border-gray-200 overflow-hidden shrink-0">
+                      <img src={editClientData.logo} alt="Preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Nombre del Contacto</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={editClientData.name}
+                    onChange={(e) => setEditClientData({...editClientData, name: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                    placeholder="Ej. Juan Pérez"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Empresa</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={editClientData.company}
+                    onChange={(e) => setEditClientData({...editClientData, company: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                    placeholder="Ej. Transportes SAC"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Teléfono</label>
+                  <div className="flex gap-2">
+                    <Select
+                      value={editClientData.phoneCode}
+                      onValueChange={(value) => setEditClientData({...editClientData, phoneCode: value})}
+                    >
+                      <SelectTrigger className="w-[100px]">
+                        <SelectValue placeholder="Código" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="+52">🇲🇽 +52</SelectItem>
+                        <SelectItem value="+1">🇺🇸 +1</SelectItem>
+                        <SelectItem value="+57">🇨🇴 +57</SelectItem>
+                        <SelectItem value="+51">🇵🇪 +51</SelectItem>
+                        <SelectItem value="+54">🇦🇷 +54</SelectItem>
+                        <SelectItem value="+56">🇨🇱 +56</SelectItem>
+                        <SelectItem value="+34">🇪🇸 +34</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <div className="relative flex-1">
+                      <Phone className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                      <input 
+                        type="tel" 
+                        maxLength={10}
+                        value={editClientData.phoneNumber}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                          setEditClientData({...editClientData, phoneNumber: value});
+                        }}
+                        className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                        placeholder="123 456 7890"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Correo electrónico</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                    <input 
+                      type="email" 
+                      value={editClientData.email}
+                      onChange={(e) => setEditClientData({...editClientData, email: e.target.value})}
+                      className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                      placeholder="correo@ejemplo.com"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">País</label>
+                  <Select
+                    value={editClientData.country}
+                    onValueChange={(value) => setEditClientData({...editClientData, country: value, region: ""})}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar país" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(LOCATIONS).map((country) => (
+                        <SelectItem key={country} value={country}>{country}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700">Estado / Región</label>
+                  <Select
+                    value={editClientData.region}
+                    onValueChange={(value) => setEditClientData({...editClientData, region: value})}
+                    disabled={!editClientData.country}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar Estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {editClientData.country && LOCATIONS[editClientData.country as keyof typeof LOCATIONS]?.map((region) => (
+                        <SelectItem key={region} value={region}>{region}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-gray-700">Tipo de Carga</label>
+                <Select
+                  value={editClientData.serviceType}
+                  onValueChange={(value) => setEditClientData({ ...editClientData, serviceType: value })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar tipo de carga" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Carga General">Carga General</SelectItem>
+                    <SelectItem value="Carga Contenerizada">Carga Contenerizada</SelectItem>
+                    <SelectItem value="Carga Mixta">Carga Mixta</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setEditingClient(null)}
+                  className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                >
+                  Guardar cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Create Client Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
@@ -515,34 +1045,6 @@ export default function ClientsPage() {
             </div>
             
             <form onSubmit={handleCreateClient} className="space-y-4">
-              {/* Logo Upload */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700">Logo de la Empresa</label>
-                <div className="flex items-center gap-3">
-                  <div className="relative flex-1">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleLogoChange}
-                      className="hidden"
-                      id="logo-upload"
-                    />
-                    <label
-                      htmlFor="logo-upload"
-                      className="flex items-center gap-2 w-full px-3 py-2 border border-gray-200 border-dashed rounded-lg text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors"
-                    >
-                      <Upload className="h-4 w-4" />
-                      {newClientData.logo ? "Logo seleccionado" : "Subir logo (imagen)"}
-                    </label>
-                  </div>
-                  {newClientData.logo && (
-                    <div className="w-10 h-10 rounded-lg border border-gray-200 overflow-hidden shrink-0">
-                      <img src={newClientData.logo} alt="Preview" className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                </div>
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-gray-700">Nombre del Contacto</label>
@@ -557,14 +1059,109 @@ export default function ClientsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-gray-700">Empresa</label>
-                  <input 
-                    required
-                    type="text" 
-                    value={newClientData.company}
-                    onChange={(e) => setNewClientData({...newClientData, company: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
-                    placeholder="Ej. Transportes SAC"
-                  />
+                  <div className="space-y-2">
+                    <Select
+                      value={
+                        companySelectionMode === "existing" && newClientData.company
+                          ? newClientData.company
+                          : "__new__"
+                      }
+                      onValueChange={(value) => {
+                        if (value === "__new__") {
+                          setCompanySelectionMode("new");
+                          setNewClientData((prev) => ({
+                            ...prev,
+                            company: "",
+                            logo: "",
+                          }));
+                        } else {
+                          setCompanySelectionMode("existing");
+                          setNewClientData((prev) => ({
+                            ...prev,
+                            company: value,
+                            logo: companyLogos[value] || prev.logo,
+                          }));
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Seleccionar empresa" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {uniqueCompanyNames.map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="__new__">Nueva empresa</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    {companySelectionMode === "new" && (
+                      <div className="space-y-2">
+                        <input
+                          required
+                          type="text"
+                          value={newClientData.company}
+                          onChange={(e) =>
+                            setNewClientData({
+                              ...newClientData,
+                              company: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-black"
+                          placeholder="Ej. Transportes SAC"
+                        />
+                        <div className="space-y-1.5">
+                          <div className="text-xs font-medium text-gray-600">
+                            Logo de la nueva empresa
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="relative flex-1">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleLogoChange}
+                                className="hidden"
+                                id="logo-upload"
+                              />
+                              <label
+                                htmlFor="logo-upload"
+                                className="flex items-center gap-2 w-full px-3 py-2 border border-gray-200 border-dashed rounded-lg text-sm text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors"
+                              >
+                                <Upload className="h-4 w-4" />
+                                {newClientData.logo
+                                  ? "Logo seleccionado"
+                                  : "Subir logo (imagen)"}
+                              </label>
+                            </div>
+                            {newClientData.logo && (
+                              <div className="w-10 h-10 rounded-lg border border-gray-200 overflow-hidden shrink-0">
+                                <img
+                                  src={newClientData.logo}
+                                  alt="Preview"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {companySelectionMode === "existing" && newClientData.logo && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Logo de la empresa:</span>
+                        <div className="w-8 h-8 rounded-lg border border-gray-200 overflow-hidden shrink-0">
+                          <img
+                            src={newClientData.logo}
+                            alt={newClientData.company}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -655,6 +1252,23 @@ export default function ClientsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-gray-700">Tipo de Carga</label>
+                <Select
+                  value={newClientData.serviceType}
+                  onValueChange={(value) => setNewClientData({ ...newClientData, serviceType: value })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar tipo de carga" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Carga General">Carga General</SelectItem>
+                    <SelectItem value="Carga Contenerizada">Carga Contenerizada</SelectItem>
+                    <SelectItem value="Carga Mixta">Carga Mixta</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="pt-4 flex gap-3">

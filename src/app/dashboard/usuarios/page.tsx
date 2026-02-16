@@ -21,9 +21,8 @@ import {
   Loader2,
   Trash2
 } from "lucide-react";
-import { db, auth } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, getDoc } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -54,6 +53,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/lib/supabaseClient";
 
 interface UserData {
   id: string;
@@ -92,35 +92,41 @@ export default function UsersPage() {
   });
 
   useEffect(() => {
-    if (!auth || !db) return;
-
-    const unsubscribe = onAuthStateChanged(auth!, async (user) => {
-      if (user) {
-        try {
-          const userDocRef = doc(db!, "users", user.uid);
-          const userDoc = await getDoc(userDocRef);
-          
-          if (userDoc.exists() && userDoc.data()?.role === 'admin') {
-            setIsAuthorized(true);
-          } else {
-            toast.error("Acceso denegado", {
-              description: "Esta sección es exclusiva para administradores."
-            });
-            router.push("/dashboard");
-          }
-        } catch (error) {
-          console.error("Error verifying admin role:", error);
-          router.push("/dashboard");
-        } finally {
-          setCheckingAuth(false);
-        }
-      } else {
+    const checkAuth = async () => {
+      if (!supabase || !db) {
         router.push("/login");
         setCheckingAuth(false);
+        return;
       }
-    });
 
-    return () => unsubscribe();
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error || !data.user) {
+        router.push("/login");
+        setCheckingAuth(false);
+        return;
+      }
+
+      try {
+        const userDocRef = doc(db, "users", data.user.id);
+        const userDoc = await getDoc(userDocRef);
+
+        if (userDoc.exists() && userDoc.data()?.role === "admin") {
+          setIsAuthorized(true);
+        } else {
+          toast.error("Acceso denegado", {
+            description: "Esta sección es exclusiva para administradores.",
+          });
+          router.push("/dashboard");
+        }
+      } catch (error) {
+        router.push("/dashboard");
+      } finally {
+        setCheckingAuth(false);
+      }
+    };
+
+    checkAuth();
   }, [router]);
 
   const fetchUsers = () => {

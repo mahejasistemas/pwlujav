@@ -4,10 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { auth, googleProvider, db } from "../lib/firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithPopup } from "firebase/auth";
+import { db } from "../lib/firebase";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function Login() {
   const router = useRouter();
@@ -24,92 +24,59 @@ export default function Login() {
     setError(null);
   };
 
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    setError(null);
-    
-    if (!auth || !googleProvider || !db) {
-      setError("Error de configuración: Firebase Auth, Google Provider o Firestore no inicializado.");
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const result = await signInWithPopup(auth!, googleProvider!);
-      const user = result.user;
-
-      // Check if user exists in Firestore
-      const userDocRef = doc(db!, "users", user.uid);
-      const userDoc = await getDoc(userDocRef);
-
-      if (!userDoc.exists()) {
-        // Create new user doc
-        await setDoc(userDocRef, {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          role: "user", // Default role
-          status: "active",
-          createdAt: serverTimestamp(),
-          lastLogin: serverTimestamp()
-        });
-      } else {
-        // Update last login
-        await setDoc(userDocRef, {
-          lastLogin: serverTimestamp()
-        }, { merge: true });
-      }
-
-      toast.success("Inicio de sesión exitoso", {
-        description: "Bienvenido a Transportes Lujav.",
-      });
-      router.push("/dashboard");
-    } catch (err: any) {
-      console.error(err);
-      setError("Error al iniciar sesión con Google");
-      toast.error("Error de autenticación", {
-        description: err.message,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    if (!auth || !db) {
-      setError("Error de configuración: Firebase Auth o Firestore no está inicializado. Verifica las variables de entorno.");
-      setLoading(false);
-      return;
-    }
-
     try {
       if (isLogin) {
-        const userCredential = await signInWithEmailAndPassword(auth!, email, password);
-        const user = userCredential.user;
-        
-        // Update last login or create if missing (for legacy users)
-        const userDocRef = doc(db!, "users", user.uid);
-        const userDoc = await getDoc(userDocRef);
-        
-        if (!userDoc.exists()) {
-           await setDoc(userDocRef, {
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName || name || "Usuario",
-            role: "user",
-            status: "active",
-            createdAt: serverTimestamp(),
-            lastLogin: serverTimestamp()
-          });
-        } else {
-          await setDoc(userDocRef, {
-            lastLogin: serverTimestamp()
-          }, { merge: true });
+        if (!supabase) {
+          setError("Error de configuración: Supabase no está inicializado.");
+          return;
+        }
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        const user = data.user;
+
+        if (user && db) {
+          const userDocRef = doc(db, "users", user.id);
+          const userDoc = await getDoc(userDocRef);
+
+          const displayName = user.user_metadata?.name || name || "Usuario";
+          const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            displayName || user.email || "Usuario",
+          )}&background=111827&color=ffffff&size=128`;
+
+          if (!userDoc.exists()) {
+            await setDoc(userDocRef, {
+              uid: user.id,
+              email: user.email,
+              displayName,
+              photoURL: avatarUrl,
+              role: "user",
+              status: "active",
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp(),
+            });
+          } else {
+            await setDoc(
+              userDocRef,
+              {
+                lastLogin: serverTimestamp(),
+                photoURL: userDoc.data()?.photoURL || avatarUrl,
+              },
+              { merge: true },
+            );
+          }
         }
 
         toast.success("Inicio de sesión exitoso", {
@@ -117,25 +84,44 @@ export default function Login() {
         });
         router.push("/dashboard");
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth!, email, password);
-        const user = userCredential.user;
-        
-        if (name) {
-          await updateProfile(user, {
-            displayName: name,
-          });
+        if (!supabase) {
+          setError("Error de configuración: Supabase no está inicializado.");
+          return;
         }
 
-        // Create user in Firestore
-        await setDoc(doc(db!, "users", user.uid), {
-          uid: user.uid,
-          email: user.email,
-          displayName: name,
-          role: "user",
-          status: "active",
-          createdAt: serverTimestamp(),
-          lastLogin: serverTimestamp()
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              name,
+            },
+          },
         });
+
+        if (error) {
+          throw error;
+        }
+
+        const user = data.user;
+
+        if (user && db) {
+          const displayName = name || user.email || "Usuario";
+          const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            displayName,
+          )}&background=111827&color=ffffff&size=128`;
+
+          await setDoc(doc(db, "users", user.id), {
+            uid: user.id,
+            email: user.email,
+            displayName,
+            photoURL: avatarUrl,
+            role: "user",
+            status: "active",
+            createdAt: serverTimestamp(),
+            lastLogin: serverTimestamp(),
+          });
+        }
 
         toast.success("Registro exitoso", {
           description: "Tu cuenta ha sido creada correctamente.",
@@ -143,18 +129,15 @@ export default function Login() {
         router.push("/dashboard");
       }
     } catch (err: any) {
-      console.error(err);
       let errorMessage = "Ocurrió un error inesperado";
-      if (err.code === 'auth/wrong-password') errorMessage = "Contraseña incorrecta";
-      if (err.code === 'auth/user-not-found') errorMessage = "Usuario no encontrado";
-      if (err.code === 'auth/email-already-in-use') errorMessage = "El correo ya está registrado";
-      if (err.code === 'auth/invalid-credential') errorMessage = "Credenciales incorrectas (correo o contraseña no válidos)";
-      if (err.code === 'auth/too-many-requests') errorMessage = "Demasiados intentos fallidos. Intenta más tarde.";
-      
-      if (err.code === 'permission-denied') errorMessage = "Permiso denegado: No tienes autorización para acceder a la base de datos.";
-      
+      const message = err?.message || "";
+      if (message.toLowerCase().includes("invalid login")) {
+        errorMessage = "Credenciales incorrectas (correo o contraseña no válidos)";
+      } else if (message.toLowerCase().includes("email already registered") || message.toLowerCase().includes("already registered")) {
+        errorMessage = "El correo ya está registrado";
+      }
+
       setError(errorMessage);
-      console.error("Login Error Full Object:", err);
       toast.error("Error de autenticación", {
         description: errorMessage,
       });
@@ -319,41 +302,6 @@ export default function Login() {
               )}
             </button>
           </form>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-gray-100" />
-            </div>
-            <div className="relative flex justify-center text-[10px] uppercase tracking-wider">
-              <span className="bg-white px-2 text-gray-400">O continuar con</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            className="w-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 text-sm"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24">
-              <path
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                fill="#4285F4"
-              />
-              <path
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                fill="#34A853"
-              />
-              <path
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                fill="#FBBC05"
-              />
-              <path
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                fill="#EA4335"
-              />
-            </svg>
-            Google
-          </button>
 
           <div className="text-center pt-2">
             <p className="text-gray-400 text-xs">

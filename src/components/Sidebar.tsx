@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
 import { useRouter, usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -25,6 +26,9 @@ export default function Sidebar() {
 
   const handleLogout = async () => {
     try {
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
       if (auth) {
         await signOut(auth);
       }
