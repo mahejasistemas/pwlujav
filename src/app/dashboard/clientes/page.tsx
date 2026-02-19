@@ -87,6 +87,8 @@ export default function ClientsPage() {
   const [activeSection, setActiveSection] = useState<"clientes" | "empresas" | "graficos">("clientes");
   const [menuClientId, setMenuClientId] = useState<string | null>(null);
   const [loadingCompanies, setLoadingCompanies] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOption, setSortOption] = useState<"recent" | "name_asc" | "name_desc" | "quotes_desc">("recent");
 
   const companyLogos = useMemo(() => {
     const logos: Record<string, string> = {};
@@ -239,6 +241,59 @@ export default function ClientsPage() {
       newThisMonth,
     };
   }, [clients]);
+
+  const filteredAndSortedClients = useMemo(() => {
+    let result = [...clients];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter((client) => {
+        const name = client.name?.toLowerCase() ?? "";
+        const company = client.company?.toLowerCase() ?? "";
+        const email = client.email?.toLowerCase() ?? "";
+        return (
+          name.includes(q) ||
+          company.includes(q) ||
+          email.includes(q)
+        );
+      });
+    }
+
+    const getSortDate = (client: Client): Date => {
+      if (client.createdAt) {
+        const d = new Date(client.createdAt);
+        if (!isNaN(d.getTime())) return d;
+      }
+      if (client.date) {
+        const d = new Date(client.date);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return new Date(0);
+    };
+
+    result.sort((a, b) => {
+      switch (sortOption) {
+        case "name_asc":
+          return (a.name || "").localeCompare(b.name || "", "es", {
+            sensitivity: "base",
+          });
+        case "name_desc":
+          return (b.name || "").localeCompare(a.name || "", "es", {
+            sensitivity: "base",
+          });
+        case "quotes_desc":
+          return (b.quotesCount ?? 0) - (a.quotesCount ?? 0);
+        case "recent":
+        default: {
+          const dateA = getSortDate(a).getTime();
+          const dateB = getSortDate(b).getTime();
+          return dateB - dateA;
+        }
+      }
+    });
+
+    return result;
+  }, [clients, searchQuery, sortOption]);
 
   const syncCompanyForNewClient = async (companyName: string, logo?: string) => {
     if (!db) return;
@@ -485,14 +540,35 @@ export default function ClientsPage() {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between mb-4">
-                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-full text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-                  <ArrowUpDown className="h-3.5 w-3.5" />
-                  Ordenar
-                </button>
-                <div className="flex items-center gap-2 text-gray-400 hover:text-gray-600 cursor-pointer group">
-                  <Search className="h-4 w-4 group-hover:text-gray-600" />
-                  <span className="text-sm">Buscar</span>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={sortOption}
+                    onValueChange={(value) =>
+                      setSortOption(value as "recent" | "name_asc" | "name_desc" | "quotes_desc")
+                    }
+                  >
+                    <SelectTrigger className="w-[180px] h-8 rounded-full border-gray-200 text-xs">
+                      <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-gray-500" />
+                      <SelectValue placeholder="Ordenar por" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="recent">Más recientes</SelectItem>
+                      <SelectItem value="name_asc">Nombre A-Z</SelectItem>
+                      <SelectItem value="name_desc">Nombre Z-A</SelectItem>
+                      <SelectItem value="quotes_desc">Más cotizaciones</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="relative w-full md:w-64">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar por nombre, empresa o correo"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black focus:border-black placeholder:text-gray-400"
+                  />
                 </div>
               </div>
 
@@ -505,9 +581,13 @@ export default function ClientsPage() {
                   <div className="py-12 text-center text-gray-400 text-sm">
                     No hay clientes registrados. Haz clic en "Nuevo Cliente" para empezar.
                   </div>
+                ) : filteredAndSortedClients.length === 0 ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    No se encontraron clientes con la búsqueda u orden seleccionados.
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {clients.map((client) => (
+                    {filteredAndSortedClients.map((client) => (
                       <div
                         key={client.id}
                         onClick={() => setSelectedClient(client)}
