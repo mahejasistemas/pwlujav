@@ -12,6 +12,7 @@ import {
   ArrowUpCircle,
   Briefcase
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
@@ -45,15 +46,14 @@ export default function Sidebar() {
     <div className="flex h-full">
       {/* 1. Slim Icon Rail (Leftmost) - Updated to match the dark visual style with labels below */}
       <div className="w-[72px] bg-red-700 flex flex-col items-center py-4 gap-2 z-20 shrink-0">
-        
         {/* Main Nav Icons */}
         <div className="flex flex-col gap-6 w-full items-center">
-          
           <NavItemRail icon={Home} label="Inicio" active={pathname === "/dashboard"} onClick={() => router.push("/dashboard")} />
           <NavItemRail icon={Calculator} label="Cotizar" active={pathname.includes("cotizaciones")} onClick={() => router.push("/dashboard/cotizaciones")} />
           <NavItemRail icon={Users} label="Clientes" active={pathname.includes("clientes")} onClick={() => router.push("/dashboard/clientes")} />
           <NavItemRail icon={FileText} label="Reportes" active={pathname.includes("reportes")} onClick={() => router.push("/dashboard/reportes")} />
           <NavItemRail icon={Tags} label="Tarifas" active={pathname.includes("tarifario")} onClick={() => router.push("/dashboard/tarifario")} />
+          <NavItemRail icon={ArrowUpCircle} label="CP" active={pathname.includes("cp")} onClick={() => router.push("/dashboard/cp")} />
           <NavItemRail icon={Briefcase} label="Equipos" active={pathname.includes("equipos")} onClick={() => router.push("/dashboard/equipos")} />
           
           {isAdmin && (
@@ -77,7 +77,7 @@ export default function Sidebar() {
   );
 }
 
-function NavItemRail({ icon: Icon, label, active, className, onClick }: { icon: any, label: string, active?: boolean, className?: string, onClick?: () => void }) {
+function NavItemRail({ icon: Icon, label, active, className, onClick }: { icon: LucideIcon, label: string, active?: boolean, className?: string, onClick?: () => void }) {
   return (
     <div 
       className="flex flex-col items-center gap-2 cursor-pointer group"
