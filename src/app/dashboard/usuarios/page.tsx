@@ -70,7 +70,7 @@
        }
        setCurrentUserId(currentUser.uid);
        try {
-         const userRef = doc(db, "users", currentUser.uid);
+         const userRef = doc(db!, "users", currentUser.uid);
          const snap = await import("firebase/firestore").then(({ getDoc }) =>
            getDoc(userRef),
          );
@@ -95,7 +95,7 @@
        return;
      }
 
-     const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
+     const q = query(collection(db!, "users"), orderBy("createdAt", "desc"));
      const unsubscribe = onSnapshot(
        q,
        (snapshot) => {
@@ -141,7 +141,7 @@
    const handleChangeRole = async (userId: string, role: Role) => {
      if (!db) return;
      try {
-       await updateDoc(doc(db, "users", userId), { role });
+       await updateDoc(doc(db!, "users", userId), { role });
        toast.success("Rol actualizado");
      } catch (error) {
        console.error("Error updating role", error);
