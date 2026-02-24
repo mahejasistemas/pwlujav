@@ -13,6 +13,7 @@ export default function CpPage() {
   const [durationText, setDurationText] = useState("");
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeError, setRouteError] = useState("");
+  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -57,15 +58,18 @@ export default function CpPage() {
     }
   };
 
-  const hasRoute = searchedOrigenCp && searchedDestinoCp;
+  const hasRoute = searchedOrigenCp && searchedDestinoCp && !routeError;
 
-  const mapUrl = hasRoute
-    ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
-        `${searchedOrigenCp} Mexico`,
-      )}&destination=${encodeURIComponent(
-        `${searchedDestinoCp} Mexico`,
-      )}`
-    : `https://www.google.com/maps?q=${encodeURIComponent("Mexico")}&output=embed`;
+  const mapUrl =
+    mapsApiKey && hasRoute
+      ? `https://www.google.com/maps/embed/v1/directions?key=${mapsApiKey}&origin=${encodeURIComponent(
+          `${searchedOrigenCp} Mexico`,
+        )}&destination=${encodeURIComponent(
+          `${searchedDestinoCp} Mexico`,
+        )}&mode=driving`
+      : mapsApiKey
+        ? `https://www.google.com/maps/embed/v1/place?key=${mapsApiKey}&q=${encodeURIComponent("Mexico")}`
+        : `https://www.google.com/maps?q=${encodeURIComponent("Mexico")}&output=embed`;
 
   return (
     <div className="h-full">

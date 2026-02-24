@@ -1,5 +1,30 @@
 import { NextResponse } from "next/server";
 
+interface GoogleDistance {
+  value: number;
+  text: string;
+}
+
+interface GoogleDuration {
+  value: number;
+  text: string;
+}
+
+interface GoogleLeg {
+  distance: GoogleDistance;
+  duration: GoogleDuration;
+}
+
+interface GoogleRoute {
+  legs: GoogleLeg[];
+}
+
+interface GoogleDirectionsResponse {
+  status: string;
+  routes?: GoogleRoute[];
+  error_message?: string;
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -17,7 +42,7 @@ export async function GET(request: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Google Maps API key no configurada" },
+        { error: "Google Maps API key no configurada en el servidor" },
         { status: 500 },
       );
     }
@@ -25,7 +50,6 @@ export async function GET(request: Request) {
     const directionsUrl = new URL(
       "https://maps.googleapis.com/maps/api/directions/json",
     );
-
     directionsUrl.searchParams.set("origin", origin);
     directionsUrl.searchParams.set("destination", destination);
     directionsUrl.searchParams.set("mode", "driving");
@@ -42,27 +66,21 @@ export async function GET(request: Request) {
       );
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as GoogleDirectionsResponse;
 
-    if (!data.routes || data.routes.length === 0) {
+    if (data.status !== "OK" || !data.routes || data.routes.length === 0) {
+      const message = data.error_message || data.status || "Respuesta inválida";
       return NextResponse.json(
-        { error: "No se encontró ruta entre los puntos indicados" },
-        { status: 404 },
+        { error: `Error en Google Directions API: ${message}` },
+        { status: 502 },
       );
     }
 
-    const leg = data.routes[0]?.legs?.[0];
-
-    if (!leg || !leg.distance || !leg.duration) {
-      return NextResponse.json(
-        { error: "Respuesta de ruta incompleta" },
-        { status: 500 },
-      );
-    }
+    const route = data.routes[0];
+    const leg = route.legs[0];
 
     const distanceMeters = leg.distance.value;
     const durationSeconds = leg.duration.value;
-
     const distanceKm = distanceMeters / 1000;
 
     return NextResponse.json({
@@ -75,11 +93,10 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
-    console.error("Error en /api/directions:", error);
-    return NextResponse.json(
-      { error: "Error interno calculando la ruta" },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : "Error interno calculando la ruta";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-
