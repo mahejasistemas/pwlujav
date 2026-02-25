@@ -43,9 +43,9 @@ export default function Sidebar() {
   if (!pathname) return null;
 
   return (
-    <div className="flex h-full">
+    <div className="fixed top-0 left-0 h-full w-[72px] z-50">
       {/* 1. Slim Icon Rail (Leftmost) - Updated to match the dark visual style with labels below */}
-      <div className="w-[72px] bg-red-700 flex flex-col items-center py-4 gap-2 z-20 shrink-0">
+      <div className="w-full bg-red-700 flex flex-col items-center py-4 gap-2 shrink-0 h-full">
         {/* Main Nav Icons */}
         <div className="flex flex-col gap-6 w-full items-center">
           <NavItemRail icon={Home} label="Inicio" active={pathname === "/dashboard"} onClick={() => router.push("/dashboard")} />

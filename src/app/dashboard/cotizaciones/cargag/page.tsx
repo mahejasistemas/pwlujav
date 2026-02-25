@@ -37,7 +37,7 @@ interface TariffRow {
   full_sobrepeso: number;
 }
 
-interface GeneralCargoEquipment {
+export interface GeneralCargoEquipment {
   id: string;
   name: string;
   largo: number;
@@ -149,17 +149,34 @@ export default function CargaGeneralPage() {
 
   useEffect(() => {
     const loadEquipments = async () => {
-      if (!supabase) return;
+      console.log("DEBUG: Iniciando carga de equipos desde Supabase...");
+      if (!supabase) {
+        console.error("DEBUG: Cliente Supabase es null/undefined");
+        return;
+      }
       setLoadingServices(true);
       setServicesError(null);
       try {
         const { data: equipmentsData, error: equipmentsError } = await supabase
           .from("carga_general")
-          .select("*")
-          .order("name", { ascending: true });
+          .select("*");
         
+        console.log("DEBUG: Datos recibidos de Supabase:", equipmentsData);
+        if (equipmentsError) console.error("DEBUG: Error de Supabase:", equipmentsError);
+
         if (!equipmentsError && equipmentsData) {
-          setAvailableServices(equipmentsData as GeneralCargoEquipment[]);
+          // Mapeo defensivo de datos para asegurar compatibilidad
+          const mappedServices = equipmentsData.map((item: any, index: number) => ({
+            id: item.id ? String(item.id) : `generated-${index}`,
+            name: item.servicios || item.servicio || item.name || item.nombre || "Sin nombre",
+            largo: Number(item.largo) || 0,
+            ancho: Number(item.ancho) || 0,
+            alto: Number(item.alto) || 0,
+            peso_max: Number(item.peso_max) || 0,
+            tariff_type: item.tariff_type || "sencillo"
+          })).sort((a, b) => a.name.localeCompare(b.name));
+
+          setAvailableServices(mappedServices);
         } else if (equipmentsError) {
           console.error("Error loading equipments from Supabase:", equipmentsError);
           setServicesError(equipmentsError.message);
@@ -300,8 +317,8 @@ export default function CargaGeneralPage() {
 
       // If a specific service is selected, we prioritize it
       let selectedEquipment = null;
-      if (servicioSeleccionado && servicioSeleccionado !== "manual") {
-        selectedEquipment = equipmentsToUse.find(eq => eq.name === servicioSeleccionado);
+      if (servicioSeleccionado) {
+        selectedEquipment = equipmentsToUse.find(eq => eq.id === servicioSeleccionado);
       }
 
       const candidates = equipmentsToUse.filter((eq) => {
@@ -577,17 +594,19 @@ export default function CargaGeneralPage() {
                           No hay servicios disponibles
                         </SelectItem>
                       ) : (
-                        <>
-                          <SelectItem value="manual">Ninguno (Auto-seleccionar)</SelectItem>
-                          {availableServices.map((eq, index) => (
-                            <SelectItem key={eq.id || index} value={eq.name || `equipment-${index}`}>
-                              {eq.name || "Sin nombre"}
-                            </SelectItem>
-                          ))}
-                        </>
+                        availableServices.map((eq) => (
+                          <SelectItem key={eq.id} value={eq.id}>
+                            {eq.name}
+                          </SelectItem>
+                        ))
                       )}
                     </SelectContent>
                   </Select>
+                  {/* Debug info - Remove in production */}
+                  <div className="text-[10px] text-gray-400 mt-1">
+                    Servicios cargados: {availableServices.length}
+                    {availableServices.length > 0 && ` (Ejemplo: ${availableServices[0].name})`}
+                  </div>
                 </div>
 
                 <div className="space-y-4">
