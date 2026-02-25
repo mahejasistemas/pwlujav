@@ -24,7 +24,7 @@ const CITIES = [
     name: "Manzanillo",
     subtitle: "Manzanillo, Sonora",
     description:
-      "Puerto de Manzanillo, Colima.",
+      "Puerto de Manzanillo, Sonora.",
     logoUrl: "https://i.imgur.com/uSLtnQV.png",
   },
   {

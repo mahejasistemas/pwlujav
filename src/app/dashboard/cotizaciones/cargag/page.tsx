@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Plus, Trash2, Calendar as CalendarIcon } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { supabase } from "@/lib/supabaseClient";
@@ -53,10 +54,23 @@ interface QuoteOption {
   currency: "USD" | "EUR" | "MXN";
 }
 
+interface CargoItem {
+  id: string;
+  cantidad: string;
+  largo: string;
+  ancho: string;
+  alto: string;
+  peso: string;
+}
+
 export default function CargaGeneralPage() {
   const [empresa, setEmpresa] = useState("");
-  const [diaExpedicion, setDiaExpedicion] = useState("");
-  const [diaVigencia, setDiaVigencia] = useState("");
+  const [diaExpedicion, setDiaExpedicion] = useState(new Date().toISOString().split("T")[0]);
+  const [diaVigencia, setDiaVigencia] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 45);
+    return date.toISOString().split("T")[0];
+  });
   const [emitente, setEmitente] = useState("");
   const [numeroCotizacion, setNumeroCotizacion] = useState("");
 
@@ -65,15 +79,46 @@ export default function CargaGeneralPage() {
   const [searchedOrigen, setSearchedOrigen] = useState("");
   const [searchedDestino, setSearchedDestino] = useState("");
 
-  const [largo, setLargo] = useState("");
-  const [alto, setAlto] = useState("");
-  const [ancho, setAncho] = useState("");
-  const [peso, setPeso] = useState("");
-  const [cantidad, setCantidad] = useState("");
-  const [divisa, setDivisa] = useState<"USD" | "EUR" | "MXN" | "">("");
+  const [cargoItems, setCargoItems] = useState<CargoItem[]>([
+    { id: "1", cantidad: "1", largo: "", ancho: "", alto: "", peso: "" }
+  ]);
+  const [divisa, setDivisa] = useState<"USD" | "EUR" | "MXN" | "">("MXN");
+
+  const addCargoItem = () => {
+    setCargoItems([
+      ...cargoItems,
+      { id: Math.random().toString(36).substring(2, 9), cantidad: "1", largo: "", ancho: "", alto: "", peso: "" }
+    ]);
+  };
+
+  const removeCargoItem = (id: string) => {
+    if (cargoItems.length > 1) {
+      setCargoItems(cargoItems.filter(item => item.id !== id));
+    }
+  };
+
+  const updateCargoItem = (id: string, field: keyof CargoItem, value: string) => {
+    setCargoItems(cargoItems.map(item => 
+      item.id === id ? { ...item, [field]: value } : item
+    ));
+  };
+
+  const totalVolumen = cargoItems.reduce((acc, item) => {
+    const vol = (parseFloat(item.largo) || 0) * (parseFloat(item.ancho) || 0) * (parseFloat(item.alto) || 0) * (parseFloat(item.cantidad) || 0);
+    return acc + vol;
+  }, 0);
+
+  const totalPeso = cargoItems.reduce((acc, item) => {
+    const pesoTotalItem = (parseFloat(item.cantidad) || 0) * (parseFloat(item.peso) || 0);
+    return acc + pesoTotalItem;
+  }, 0);
 
   const [companies, setCompanies] = useState<SimpleCompany[]>([]);
   const [clients, setClients] = useState<SimpleClient[]>([]);
+  const [availableServices, setAvailableServices] = useState<GeneralCargoEquipment[]>([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [servicesError, setServicesError] = useState<string | null>(null);
+  const [servicioSeleccionado, setServicioSeleccionado] = useState("");
   const [companySelectionMode, setCompanySelectionMode] = useState<CompanySelectionMode>("manual");
 
   const [quoteOptions, setQuoteOptions] = useState<QuoteOption[]>([]);
@@ -81,6 +126,14 @@ export default function CargaGeneralPage() {
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
   const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  useEffect(() => {
+    if (diaExpedicion) {
+      const date = new Date(diaExpedicion);
+      date.setDate(date.getDate() + 45);
+      setDiaVigencia(date.toISOString().split("T")[0]);
+    }
+  }, [diaExpedicion]);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -93,6 +146,34 @@ export default function CargaGeneralPage() {
 
     loadUser();
   }, []);
+
+  useEffect(() => {
+    const loadEquipments = async () => {
+      if (!supabase) return;
+      setLoadingServices(true);
+      setServicesError(null);
+      try {
+        const { data: equipmentsData, error: equipmentsError } = await supabase
+          .from("carga_general")
+          .select("*")
+          .order("name", { ascending: true });
+        
+        if (!equipmentsError && equipmentsData) {
+          setAvailableServices(equipmentsData as GeneralCargoEquipment[]);
+        } else if (equipmentsError) {
+          console.error("Error loading equipments from Supabase:", equipmentsError);
+          setServicesError(equipmentsError.message);
+        }
+      } catch (error: any) {
+        console.error("Unexpected error loading equipments:", error);
+        setServicesError(error.message || "Error inesperado");
+      } finally {
+        setLoadingServices(false);
+      }
+    };
+
+    loadEquipments();
+  }, [supabase]);
 
   useEffect(() => {
     if (!db) return;
@@ -151,15 +232,15 @@ export default function CargaGeneralPage() {
         return;
       }
 
-      const largoNum = parseFloat(largo) || 0;
-      const altoNum = parseFloat(alto) || 0;
-      const anchoNum = parseFloat(ancho) || 0;
-      const pesoNum = parseFloat(peso) || 0;
-
-      if (!largoNum || !anchoNum || !altoNum || !pesoNum) {
-        setQuoteError("Debes completar las medidas y el peso para cotizar.");
+      if (cargoItems.some(item => !item.largo || !item.ancho || !item.alto || !item.peso || !item.cantidad)) {
+        setQuoteError("Debes completar todos los datos de cada ítem de carga.");
         return;
       }
+
+      const maxLargo = Math.max(...cargoItems.map(i => parseFloat(i.largo) || 0));
+      const maxAncho = Math.max(...cargoItems.map(i => parseFloat(i.ancho) || 0));
+      const maxAlto = Math.max(...cargoItems.map(i => parseFloat(i.alto) || 0));
+      const totalPesoNum = totalPeso;
 
       const tarifasRes = await fetch("/api/tarifas");
       if (!tarifasRes.ok) {
@@ -201,32 +282,43 @@ export default function CargaGeneralPage() {
         return;
       }
 
-      const { data: equipmentsData, error: equipmentsError } = await supabase
-        .from("carga_general")
-        .select("*");
+      // We already have services in state, let's use them
+      let equipmentsToUse = availableServices;
 
-      if (equipmentsError) {
-        setQuoteError("No se pudieron obtener los equipos de carga general.");
-        return;
+      // If for some reason state is empty, try to fetch again (fallback)
+      if (equipmentsToUse.length === 0) {
+        const { data: equipmentsData, error: equipmentsError } = await supabase
+          .from("carga_general")
+          .select("*");
+
+        if (equipmentsError) {
+          setQuoteError("No se pudieron obtener los equipos de carga general.");
+          return;
+        }
+        equipmentsToUse = (equipmentsData || []) as GeneralCargoEquipment[];
       }
 
-      const equipments = (equipmentsData || []) as GeneralCargoEquipment[];
+      // If a specific service is selected, we prioritize it
+      let selectedEquipment = null;
+      if (servicioSeleccionado && servicioSeleccionado !== "manual") {
+        selectedEquipment = equipmentsToUse.find(eq => eq.name === servicioSeleccionado);
+      }
 
-      const candidates = equipments.filter((eq) => {
+      const candidates = equipmentsToUse.filter((eq) => {
         const largoMax = eq.largo || 0;
         const anchoMax = eq.ancho || 0;
         const altoMax = eq.alto || 0;
         const pesoMax = eq.peso_max || 0;
 
-        const fitsLargo = !largoMax || largoNum <= largoMax;
-        const fitsAncho = !anchoMax || anchoNum <= anchoMax;
-        const fitsAlto = !altoMax || altoNum <= altoMax;
-        const fitsPeso = !pesoMax || pesoNum <= pesoMax;
+        const fitsLargo = !largoMax || maxLargo <= largoMax;
+        const fitsAncho = !anchoMax || maxAncho <= anchoMax;
+        const fitsAlto = !altoMax || maxAlto <= altoMax;
+        const fitsPeso = !pesoMax || totalPesoNum <= pesoMax;
 
         return fitsLargo && fitsAncho && fitsAlto && fitsPeso;
       });
 
-      if (!candidates.length) {
+      if (!candidates.length && !selectedEquipment) {
         setQuoteError("No se encontraron equipos en carga general que soporten estas medidas.");
         return;
       }
@@ -239,6 +331,17 @@ export default function CargaGeneralPage() {
         }
         return 0;
       });
+
+      // Ensure the selected equipment is at the top if it exists
+      if (selectedEquipment && !sorted.find(e => e.id === selectedEquipment!.id)) {
+        sorted.unshift(selectedEquipment);
+      } else if (selectedEquipment) {
+        const index = sorted.findIndex(e => e.id === selectedEquipment!.id);
+        if (index > -1) {
+          const [el] = sorted.splice(index, 1);
+          sorted.unshift(el);
+        }
+      }
 
       const currency: "USD" | "EUR" | "MXN" =
         (divisa as "USD" | "EUR" | "MXN") || "MXN";
@@ -389,29 +492,44 @@ export default function CargaGeneralPage() {
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
-                    <Label htmlFor="diaExpedicion">Día de expedición</Label>
-                    <Input
-                      id="diaExpedicion"
-                      type="date"
-                      value={diaExpedicion}
-                      onChange={(event) => setDiaExpedicion(event.target.value)}
-                      required
-                    />
+                    <Label htmlFor="diaExpedicion" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                      Fecha de Expedición
+                    </Label>
+                    <div className="relative group">
+                      <CalendarIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none" />
+                      <Input
+                        id="diaExpedicion"
+                        type="date"
+                        className="pl-10 h-11 border-gray-200 bg-white hover:border-gray-300 focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                        value={diaExpedicion}
+                        onChange={(event) => setDiaExpedicion(event.target.value)}
+                        required
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="diaVigencia">Día de vigencia</Label>
-                    <Input
-                      id="diaVigencia"
-                      type="date"
-                      value={diaVigencia}
-                      onChange={(event) => setDiaVigencia(event.target.value)}
-                      required
-                    />
+                    <Label htmlFor="diaVigencia" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                      Fecha de Vigencia (+45 días)
+                    </Label>
+                    <div className="relative group">
+                      <CalendarIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none" />
+                      <Input
+                        id="diaVigencia"
+                        type="date"
+                        className="pl-10 h-11 border-gray-200 bg-white hover:border-gray-300 focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                        value={diaVigencia}
+                        onChange={(event) => setDiaVigencia(event.target.value)}
+                        required
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="numeroCotizacion">No. Cotización</Label>
+                    <Label htmlFor="numeroCotizacion" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                      No. Cotización
+                    </Label>
                     <Input
                       id="numeroCotizacion"
+                      className="h-11 border-gray-200 bg-white hover:border-gray-300 focus:ring-2 focus:ring-primary/20 transition-all"
                       value={numeroCotizacion}
                       onChange={(event) => setNumeroCotizacion(event.target.value)}
                       placeholder="Ej. COT-0001"
@@ -422,88 +540,170 @@ export default function CargaGeneralPage() {
             </Card>
 
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
                 <CardTitle className="text-base">Detalles de la carga</CardTitle>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={addCargoItem}
+                  className="h-8 gap-1"
+                >
+                  <Plus className="h-4 w-4" />
+                  Agregar otra carga
+                </Button>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-5">
-                  <div className="space-y-2">
-                    <Label htmlFor="largo">Largo</Label>
-                    <Input
-                      id="largo"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={largo}
-                      onChange={(event) => setLargo(event.target.value)}
-                      placeholder="m"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="alto">Alto</Label>
-                    <Input
-                      id="alto"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={alto}
-                      onChange={(event) => setAlto(event.target.value)}
-                      placeholder="m"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ancho">Ancho</Label>
-                    <Input
-                      id="ancho"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={ancho}
-                      onChange={(event) => setAncho(event.target.value)}
-                      placeholder="m"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="peso">Peso (tons)</Label>
-                    <Input
-                      id="peso"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={peso}
-                      onChange={(event) => setPeso(event.target.value)}
-                      placeholder="tons"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="cantidad">Cantidad</Label>
-                    <Input
-                      id="cantidad"
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={cantidad}
-                      onChange={(event) => setCantidad(event.target.value)}
-                      placeholder="Piezas"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2 max-w-xs">
-                  <Label>Tipo de Divisa</Label>
+              <CardContent className="space-y-6">
+                <div className="space-y-2 pb-2 border-b border-gray-100">
+                  <Label htmlFor="servicio">Servicio / Equipo</Label>
                   <Select
-                    value={divisa}
-                    onValueChange={(value) => setDivisa(value as "USD" | "EUR" | "MXN")}
+                    value={servicioSeleccionado}
+                    onValueChange={(value) => setServicioSeleccionado(value)}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecciona una divisa" />
+                      <SelectValue placeholder="Selecciona un servicio" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="EUR">EUR</SelectItem>
-                      <SelectItem value="MXN">MXN</SelectItem>
+                      {loadingServices ? (
+                        <SelectItem value="loading" disabled>
+                          Cargando servicios...
+                        </SelectItem>
+                      ) : servicesError ? (
+                        <SelectItem value="error" disabled>
+                          Error: {servicesError}
+                        </SelectItem>
+                      ) : availableServices.length === 0 ? (
+                        <SelectItem value="none" disabled>
+                          No hay servicios disponibles
+                        </SelectItem>
+                      ) : (
+                        <>
+                          <SelectItem value="manual">Ninguno (Auto-seleccionar)</SelectItem>
+                          {availableServices.map((eq, index) => (
+                            <SelectItem key={eq.id || index} value={eq.name || `equipment-${index}`}>
+                              {eq.name || "Sin nombre"}
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-4">
+                  {cargoItems.map((item, index) => (
+                    <div key={item.id} className="relative space-y-4 rounded-lg border border-gray-100 p-4 pt-6">
+                      <div className="absolute left-3 top-[-10px] bg-white px-2 text-xs font-medium text-gray-500">
+                        Carga #{index + 1}
+                      </div>
+                      
+                      {cargoItems.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-2 top-2 h-8 w-8 text-gray-400 hover:text-red-500"
+                          onClick={() => removeCargoItem(item.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+
+                      <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
+                        <div className="space-y-2">
+                          <Label htmlFor={`cantidad-${item.id}`}>Cantidad</Label>
+                          <Input
+                            id={`cantidad-${item.id}`}
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={item.cantidad}
+                            onChange={(e) => updateCargoItem(item.id, "cantidad", e.target.value)}
+                            placeholder="Piezas"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`largo-${item.id}`}>Largo (m)</Label>
+                          <Input
+                            id={`largo-${item.id}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.largo}
+                            onChange={(e) => updateCargoItem(item.id, "largo", e.target.value)}
+                            placeholder="m"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`ancho-${item.id}`}>Ancho (m)</Label>
+                          <Input
+                            id={`ancho-${item.id}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.ancho}
+                            onChange={(e) => updateCargoItem(item.id, "ancho", e.target.value)}
+                            placeholder="m"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`alto-${item.id}`}>Alto (m)</Label>
+                          <Input
+                            id={`alto-${item.id}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.alto}
+                            onChange={(e) => updateCargoItem(item.id, "alto", e.target.value)}
+                            placeholder="m"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`peso-${item.id}`}>Peso Unit. (tons)</Label>
+                          <Input
+                            id={`peso-${item.id}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.peso}
+                            onChange={(e) => updateCargoItem(item.id, "peso", e.target.value)}
+                            placeholder="tons"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 pt-2 border-t border-gray-100">
+                  <div className="space-y-2">
+                    <Label className="text-gray-500">Peso Total del Embarque</Label>
+                    <div className="flex items-center h-10 px-3 rounded-md bg-gray-50 border border-gray-200 font-semibold text-gray-900">
+                      {totalPeso.toFixed(2)} tons
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-500">Volumen Total del Embarque</Label>
+                    <div className="flex items-center h-10 px-3 rounded-md bg-gray-50 border border-gray-200 font-semibold text-gray-900">
+                      {totalVolumen.toFixed(2)} m³
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Tipo de Divisa</Label>
+                    <Select
+                      value={divisa}
+                      onValueChange={(value) => setDivisa(value as "USD" | "EUR" | "MXN")}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Divisa" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="USD">USD</SelectItem>
+                        <SelectItem value="EUR">EUR</SelectItem>
+                        <SelectItem value="MXN">MXN</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </CardContent>
             </Card>
