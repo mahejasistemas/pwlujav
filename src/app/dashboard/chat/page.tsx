@@ -39,27 +39,16 @@ export default function ChatPage() {
     }
   }, [messages, isLoading]);
 
-  const handleSendMessage = async () => {
-    if (!input.trim() || isLoading) return;
-
-    const startTime = Date.now();
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input,
-      timestamp: new Date()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInput("");
+  const processResponse = async (currentMessages: Message[]) => {
     setIsLoading(true);
+    const startTime = Date.now();
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...messages, userMessage],
+          messages: currentMessages,
           isThinkingEnabled
         })
       });
@@ -86,9 +75,7 @@ export default function ChatPage() {
       }
 
       // Simulate metrics for display purposes
-      // TTFT is usually < totalTime. Let's approximate.
       const ttft = Math.floor(totalTime * 0.2); 
-      // Speed (tokens/sec) = length / (totalTime/1000) * factor
       const speed = (finalContent.length / 4) / (totalTime / 1000); 
 
       const assistantMessage: Message = {
@@ -117,6 +104,33 @@ export default function ChatPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSendMessage = async () => {
+    if (!input.trim() || isLoading) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      content: input,
+      timestamp: new Date()
+    };
+
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    setInput("");
+    
+    await processResponse(newMessages);
+  };
+
+  const handleRegenerate = async (index: number) => {
+    if (isLoading) return;
+    
+    // Keep messages up to the one before the assistant message we are regenerating
+    const newHistory = messages.slice(0, index);
+    setMessages(newHistory);
+    
+    await processResponse(newHistory);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -152,7 +166,7 @@ export default function ChatPage() {
           // Messages List
           <ScrollArea className="flex-1 p-4 md:p-6" ref={scrollAreaRef}>
             <div className="max-w-3xl mx-auto flex flex-col gap-6 pb-4">
-              {messages.map((message) => (
+              {messages.map((message, index) => (
                 <div
                   key={message.id}
                   className={`flex gap-4 w-full ${
@@ -207,7 +221,11 @@ export default function ChatPage() {
                               <button onClick={() => copyToClipboard(message.content)} className="hover:text-gray-600 transition-colors" title="Copiar">
                                 <Copy className="h-3.5 w-3.5" />
                               </button>
-                              <button className="hover:text-gray-600 transition-colors" title="Regenerar">
+                              <button 
+                                onClick={() => handleRegenerate(index)}
+                                className="hover:text-gray-600 transition-colors" 
+                                title="Regenerar"
+                              >
                                 <RefreshCw className="h-3.5 w-3.5" />
                               </button>
                            </div>

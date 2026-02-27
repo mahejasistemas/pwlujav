@@ -21,6 +21,7 @@ import {
   Phone,
   Mail,
   BarChart3,
+  MessageSquare
 } from "lucide-react";
 import {
   Select,
@@ -154,7 +155,10 @@ export default function ClientsPage() {
   // Load companies from Supabase
   useEffect(() => {
     const fetchCompanies = async () => {
-      if (!supabase) return;
+      if (!supabase) {
+        setLoadingCompanies(false);
+        return;
+      }
       
       const { data, error } = await supabase
         .from('companies')
@@ -504,10 +508,32 @@ export default function ClientsPage() {
     e.preventDefault();
     try {
       if (!editingClient) return;
-      // Firebase update client removed
+      if (!supabase) {
+        toast.error("No se pudo conectar a la base de datos");
+        return;
+      }
+
+      const updatedClient = {
+        name: editClientData.name,
+        company: editClientData.company,
+        location: `${editClientData.region}, ${editClientData.country}`,
+        service_type: editClientData.serviceType,
+        logo: editClientData.logo,
+        phone: `${editClientData.phoneCode} ${editClientData.phoneNumber}`,
+        email: editClientData.email,
+      };
+
+      const { error } = await supabase
+        .from('clients')
+        .update(updatedClient)
+        .eq('id', editingClient.id);
+
+      if (error) throw error;
+      
+      await syncCompanyForNewClient(editClientData.company, editClientData.logo);
 
       setEditingClient(null);
-      toast.success("Cliente actualizado (Simulado)");
+      toast.success("Cliente actualizado exitosamente");
     } catch (error) {
       console.error("Error updating client:", error);
       toast.error("Error al actualizar el cliente");
@@ -576,6 +602,14 @@ export default function ClientsPage() {
               <BarChart3 className="h-4 w-4" />
               <span>Gráficos</span>
             </button>
+            <button
+              type="button"
+              onClick={() => window.open("/dashboard/chat?context=clientes", "_blank")}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors mt-4"
+            >
+              <MessageSquare className="h-4 w-4" />
+              <span>Asistente IA</span>
+            </button>
           </div>
         </div>
 
@@ -591,6 +625,22 @@ export default function ClientsPage() {
                   Nuevo Cliente
                   <Plus className="h-4 w-4" />
                 </button>
+              </div>
+
+              {/* Metrics Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                   <span className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Total Clientes</span>
+                   <div className="text-2xl font-bold text-gray-900">{clientMetrics.total}</div>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                   <span className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Activos</span>
+                   <div className="text-2xl font-bold text-green-600">{clientMetrics.active}</div>
+                </div>
+                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                   <span className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Nuevos este mes</span>
+                   <div className="text-2xl font-bold text-blue-600">{clientMetrics.newThisMonth}</div>
+                </div>
               </div>
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
@@ -705,9 +755,15 @@ export default function ClientsPage() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1 mb-3 text-xs text-gray-500">
-                          <Calendar className="h-3 w-3" />
-                          <span>{client.date || ""}</span>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-1 text-xs text-gray-500">
+                            <Calendar className="h-3 w-3" />
+                            <span>{client.date || ""}</span>
+                          </div>
+                          <div className={`px-2 py-0.5 rounded-full text-[10px] font-medium border flex items-center gap-1 ${getStatusColor(client.status)}`}>
+                            {getStatusIcon(client.status)}
+                            <span className="capitalize">{client.status?.replace('_', ' ') || "Desconocido"}</span>
+                          </div>
                         </div>
 
                         <div className="space-y-1.5 text-xs text-gray-600 mb-3">
