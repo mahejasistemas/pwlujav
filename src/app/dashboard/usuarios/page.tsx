@@ -79,7 +79,8 @@ export default function UsersPage() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*');
+        .select('*')
+        .order('created_at', { ascending: false });
 
       if (error) {
         console.warn("Could not fetch profiles", error);
@@ -151,6 +152,11 @@ export default function UsersPage() {
   }, [users, search]);
 
   const handleChangeRole = async (userId: string, newRole: Role) => {
+    if (!supabase) {
+      toast.error("No se pudo conectar a la base de datos");
+      return;
+    }
+
     if (currentUserRole !== 'admin') {
       toast.error("Solo los administradores pueden cambiar roles.");
       return;
