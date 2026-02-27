@@ -88,7 +88,7 @@ export default function EquiposPage() {
         .from('profiles')
         .select('role')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
       
       setIsAdmin(profile?.role === 'admin');
       setCurrentUser(user.id);
