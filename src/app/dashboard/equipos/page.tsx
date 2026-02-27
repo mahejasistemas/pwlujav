@@ -76,9 +76,13 @@ export default function EquiposPage() {
   }, [currentUser, isAdmin]);
 
   const checkUser = async () => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      setCurrentUser(user.id);
       // Check if admin
       const { data: profile } = await supabase
         .from('profiles')
@@ -87,12 +91,18 @@ export default function EquiposPage() {
         .single();
       
       setIsAdmin(profile?.role === 'admin');
+      setCurrentUser(user.id);
     } else {
       setLoading(false);
     }
   };
 
   const fetchData = async () => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       // 1. Fetch Users (Profiles) for member mapping and selection
@@ -110,7 +120,8 @@ export default function EquiposPage() {
           user_id,
           role
         )
-      `);
+      `)
+      .order('created_at', { ascending: false });
 
       // If not admin, RLS policies will restrict automatically, but we can be explicit if needed
       // RLS is already set up to show workspaces user is member of.
@@ -140,6 +151,11 @@ export default function EquiposPage() {
   };
 
   const handleCreateWorkspace = async () => {
+    if (!supabase) {
+      toast.error("No se pudo conectar a la base de datos");
+      return;
+    }
+
     if (!newName || !newBase) {
       toast.error("Nombre y Base son requeridos");
       return;
@@ -187,6 +203,11 @@ export default function EquiposPage() {
   };
 
   const handleDeleteWorkspace = async (id: string) => {
+    if (!supabase) {
+      toast.error("No se pudo conectar a la base de datos");
+      return;
+    }
+
     if (!confirm("¿Estás seguro de eliminar este workspace?")) return;
     try {
       const { error } = await supabase.from('workspaces').delete().eq('id', id);
