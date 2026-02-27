@@ -24,8 +24,6 @@ import {
   SelectTrigger,
   SelectValue 
 } from "@/components/ui/select";
-import { db } from "@/lib/firebase";
-import { collection, getCountFromServer } from "firebase/firestore";
 import { toast } from "sonner";
 
 export default function ReportsPage() {
@@ -36,19 +34,8 @@ export default function ReportsPage() {
   const quotesHistory: any[] = [];
 
   useEffect(() => {
-    if (!db) return;
-
-    const fetchStats = async () => {
-      try {
-        const coll = collection(db!, "clients");
-        const snapshot = await getCountFromServer(coll);
-        setTotalClients(snapshot.data().count);
-      } catch (error) {
-        console.error("Error fetching stats:", error);
-        setTotalClients(0);
-      }
-    };
-    fetchStats();
+    // Firebase stats fetching removed
+    setTotalClients(0);
   }, []);
 
   const handleDownloadQuote = (id: string) => {

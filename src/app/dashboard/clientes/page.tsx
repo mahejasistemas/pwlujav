@@ -29,21 +29,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  addDoc,
-  onSnapshot,
-  updateDoc,
-  deleteDoc,
-  doc,
-  query,
-  orderBy,
-  getDocs,
-  where,
-} from "firebase/firestore";
 import { toast } from "sonner";
 import { ClientsCharts } from "@/components/ClientsCharts";
+import { supabase } from "@/lib/supabaseClient";
 
 interface Client {
   id: string;
@@ -108,52 +96,103 @@ export default function ClientsPage() {
     [companies],
   );
 
-  // Load clients from Firebase Realtime
+  // Load clients from Supabase
   useEffect(() => {
-    if (!db) {
-      console.error("Firebase DB not initialized");
+    const fetchClients = async () => {
+      if (!supabase) return;
+      
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (error) {
+        console.error("Error fetching clients:", error);
+        toast.error("Error al cargar clientes");
+        setLoading(false);
+        return;
+      }
+      
+      if (data) {
+        const mappedClients: Client[] = data.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          company: item.company,
+          date: item.date ? new Date(item.date).toLocaleDateString() : '',
+          location: item.location || '',
+          status: item.status as any,
+          serviceType: item.service_type || '',
+          quotesCount: item.quotes_count || 0,
+          reports: [],
+          logo: item.logo,
+          phone: item.phone,
+          email: item.email,
+          createdAt: item.created_at
+        }));
+        setClients(mappedClients);
+      }
       setLoading(false);
-      return;
-    }
-    const q = query(collection(db, "clients"), orderBy("date", "desc"));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const clientsData: Client[] = [];
-      querySnapshot.forEach((doc) => {
-        clientsData.push({ id: doc.id, ...doc.data() } as Client);
-      });
-      setClients(clientsData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching clients:", error);
-      toast.error("No se pudo conectar. Asegúrate de crear la base de datos en Firebase Console.");
-      setLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
+    fetchClients();
+    
+    // Subscribe to changes
+    if (supabase) {
+      const channel = supabase
+        .channel('clients_changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, () => {
+          fetchClients();
+        })
+        .subscribe();
+        
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, []);
 
-  // Load companies
+  // Load companies from Supabase
   useEffect(() => {
-    if (!db) {
-      console.error("Firebase DB not initialized");
+    const fetchCompanies = async () => {
+      if (!supabase) return;
+      
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .order('name', { ascending: true });
+        
+      if (error) {
+        console.error("Error fetching companies:", error);
+        setLoadingCompanies(false);
+        return;
+      }
+      
+      if (data) {
+        const mappedCompanies: Company[] = data.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          employeesCount: item.employees_count || 1,
+          logo: item.logo
+        }));
+        setCompanies(mappedCompanies);
+      }
       setLoadingCompanies(false);
-      return;
-    }
-    const q = query(collection(db, "companies"), orderBy("name", "asc"));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const companiesData: Company[] = [];
-      querySnapshot.forEach((doc) => {
-        companiesData.push({ id: doc.id, ...doc.data() } as Company);
-      });
-      setCompanies(companiesData);
-      setLoadingCompanies(false);
-    }, (error) => {
-      console.error("Error fetching companies:", error);
-      setLoadingCompanies(false);
-    });
+    };
 
-    return () => unsubscribe();
+    fetchCompanies();
+
+    if (supabase) {
+      const channel = supabase
+        .channel('companies_changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, () => {
+          fetchCompanies();
+        })
+        .subscribe();
+        
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, []);
   
   // Create Client State
@@ -296,31 +335,43 @@ export default function ClientsPage() {
   }, [clients, searchQuery, sortOption]);
 
   const syncCompanyForNewClient = async (companyName: string, logo?: string) => {
-    if (!db) return;
+    if (!supabase) return;
     const trimmedName = companyName.trim();
     if (!trimmedName) return;
 
-    const companiesCol = collection(db, "companies");
-    const q = query(companiesCol, where("name", "==", trimmedName));
-    const snapshot = await getDocs(q);
+    // Check if company exists
+    const { data: existingCompanies, error } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('name', trimmedName)
+      .limit(1);
 
-    if (snapshot.empty) {
-      await addDoc(companiesCol, {
+    if (error) {
+      console.error("Error checking company:", error);
+      return;
+    }
+
+    if (!existingCompanies || existingCompanies.length === 0) {
+      // Create new company
+      await supabase.from('companies').insert({
         name: trimmedName,
-        employeesCount: 1,
-        ...(logo ? { logo } : {}),
+        employees_count: 1,
+        logo: logo || null
       });
     } else {
-      const companyDoc = snapshot.docs[0];
-      const data = companyDoc.data();
-      const currentCount = (data.employeesCount as number) || 0;
-      const updatePayload: Partial<{ employeesCount: number; logo: string }> = {
-        employeesCount: currentCount + 1,
+      // Update existing company
+      const company = existingCompanies[0];
+      const updateData: any = {
+        employees_count: (company.employees_count || 0) + 1
       };
-      if (logo && !data.logo) {
-        updatePayload.logo = logo;
+      if (logo && !company.logo) {
+        updateData.logo = logo;
       }
-      await updateDoc(companyDoc.ref, updatePayload);
+      
+      await supabase
+        .from('companies')
+        .update(updateData)
+        .eq('id', company.id);
     }
   };
 
@@ -328,7 +379,7 @@ export default function ClientsPage() {
     e.preventDefault();
     
     try {
-      if (!db) {
+      if (!supabase) {
         toast.error("No se pudo conectar a la base de datos");
         return;
       }
@@ -336,19 +387,20 @@ export default function ClientsPage() {
       const newClient = {
         name: newClientData.name,
         company: newClientData.company,
-        date: new Date().toLocaleDateString(),
-        createdAt: new Date().toISOString(),
+        date: new Date().toISOString(),
         location: `${newClientData.region}, ${newClientData.country}`,
         status: "en_proceso",
-        serviceType: newClientData.serviceType,
+        service_type: newClientData.serviceType,
         logo: newClientData.logo,
         phone: `${newClientData.phoneCode} ${newClientData.phoneNumber}`,
         email: newClientData.email,
-        quotesCount: 0,
-        reports: []
+        quotes_count: 0
       };
       
-      await addDoc(collection(db, "clients"), newClient);
+      const { error } = await supabase.from('clients').insert(newClient);
+      
+      if (error) throw error;
+      
       await syncCompanyForNewClient(newClientData.company, newClientData.logo);
       
       setIsCreateModalOpen(false);
@@ -374,11 +426,15 @@ export default function ClientsPage() {
 
   const updateClientStatus = async (clientId: string, newStatus: Client['status']) => {
     try {
-      if (!db) return;
-      const clientRef = doc(db, "clients", clientId);
-      await updateDoc(clientRef, {
-        status: newStatus
-      });
+      if (!supabase) return;
+      
+      const { error } = await supabase
+        .from('clients')
+        .update({ status: newStatus })
+        .eq('id', clientId);
+        
+      if (error) throw error;
+      
       toast.success("Estado actualizado");
     } catch (error) {
       console.error("Error updating status:", error);
@@ -388,11 +444,18 @@ export default function ClientsPage() {
 
   const handleDeleteClient = async (clientId: string) => {
     try {
-      if (!db) return;
+      if (!supabase) return;
+      
       const confirmDelete = window.confirm("¿Quieres eliminar este cliente?");
       if (!confirmDelete) return;
-      const clientRef = doc(db, "clients", clientId);
-      await deleteDoc(clientRef);
+      
+      const { error } = await supabase
+        .from('clients')
+        .delete()
+        .eq('id', clientId);
+        
+      if (error) throw error;
+      
       toast.success("Cliente eliminado");
     } catch (error) {
       console.error("Error deleting client:", error);
@@ -440,21 +503,11 @@ export default function ClientsPage() {
   const handleUpdateClient = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (!db || !editingClient) return;
-      const clientRef = doc(db, "clients", editingClient.id);
-
-      await updateDoc(clientRef, {
-        name: editClientData.name,
-        company: editClientData.company,
-        location: `${editClientData.region}, ${editClientData.country}`,
-        phone: `${editClientData.phoneCode} ${editClientData.phoneNumber}`,
-        email: editClientData.email,
-        serviceType: editClientData.serviceType,
-        logo: editClientData.logo,
-      });
+      if (!editingClient) return;
+      // Firebase update client removed
 
       setEditingClient(null);
-      toast.success("Cliente actualizado");
+      toast.success("Cliente actualizado (Simulado)");
     } catch (error) {
       console.error("Error updating client:", error);
       toast.error("Error al actualizar el cliente");

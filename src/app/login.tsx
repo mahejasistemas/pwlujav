@@ -4,8 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { db } from "../lib/firebase";
-import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -47,37 +45,7 @@ export default function Login() {
 
         const user = data.user;
 
-        if (user && db) {
-          const userDocRef = doc(db, "users", user.id);
-          const userDoc = await getDoc(userDocRef);
-
-          const displayName = user.user_metadata?.name || name || "Usuario";
-          const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-            displayName || user.email || "Usuario",
-          )}&background=111827&color=ffffff&size=128`;
-
-          if (!userDoc.exists()) {
-            await setDoc(userDocRef, {
-              uid: user.id,
-              email: user.email,
-              displayName,
-              photoURL: avatarUrl,
-              role: "user",
-              status: "active",
-              createdAt: serverTimestamp(),
-              lastLogin: serverTimestamp(),
-            });
-          } else {
-            await setDoc(
-              userDocRef,
-              {
-                lastLogin: serverTimestamp(),
-                photoURL: userDoc.data()?.photoURL || avatarUrl,
-              },
-              { merge: true },
-            );
-          }
-        }
+        // Firebase user creation logic removed
 
         toast.success("Inicio de sesión exitoso", {
           description: "Bienvenido a Transportes Lujav.",
@@ -105,23 +73,7 @@ export default function Login() {
 
         const user = data.user;
 
-        if (user && db) {
-          const displayName = name || user.email || "Usuario";
-          const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-            displayName,
-          )}&background=111827&color=ffffff&size=128`;
-
-          await setDoc(doc(db, "users", user.id), {
-            uid: user.id,
-            email: user.email,
-            displayName,
-            photoURL: avatarUrl,
-            role: "user",
-            status: "active",
-            createdAt: serverTimestamp(),
-            lastLogin: serverTimestamp(),
-          });
-        }
+        // Firebase user creation logic removed
 
         toast.success("Registro exitoso", {
           description: "Tu cuenta ha sido creada correctamente.",

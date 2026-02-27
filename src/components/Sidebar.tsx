@@ -10,12 +10,11 @@ import {
   Shield,
   UserPlus,
   ArrowUpCircle,
-  Briefcase
+  Briefcase,
+  MessageSquare
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { auth } from "@/lib/firebase";
-import { signOut } from "firebase/auth";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -30,9 +29,7 @@ export default function Sidebar() {
       if (supabase) {
         await supabase.auth.signOut();
       }
-      if (auth) {
-        await signOut(auth);
-      }
+      // Firebase auth sign out removed
       router.push("/login");
     } catch (error) {
       console.error("Error signing out:", error);

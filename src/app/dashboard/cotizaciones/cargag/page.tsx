@@ -7,8 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Calendar as CalendarIcon } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { supabase } from "@/lib/supabaseClient";
 
 type CompanySelectionMode = "manual" | "company" | "client";
@@ -193,43 +191,39 @@ export default function CargaGeneralPage() {
   }, [supabase]);
 
   useEffect(() => {
-    if (!db) return;
-
-    const load = async () => {
+    const fetchCompaniesAndClients = async () => {
+      if (!supabase) return;
+      
       try {
-        const companiesQuery = query(collection(db!, "companies"), orderBy("name", "asc"));
-        const companiesSnap = await getDocs(companiesQuery);
-        const companiesData: SimpleCompany[] = companiesSnap.docs
-          .map((docSnap) => {
-            const data = docSnap.data() as any;
-            return {
-              id: docSnap.id,
-              name: data.name || "",
-            };
-          })
-          .filter((c) => c.name);
-
-        const clientsQuery = query(collection(db!, "clients"), orderBy("name", "asc"));
-        const clientsSnap = await getDocs(clientsQuery);
-        const clientsData: SimpleClient[] = clientsSnap.docs
-          .map((docSnap) => {
-            const data = docSnap.data() as any;
-            return {
-              id: docSnap.id,
-              name: data.name || "",
-              company: data.company || "",
-            };
-          })
-          .filter((c) => c.name);
-
-        setCompanies(companiesData);
-        setClients(clientsData);
+        // Fetch companies
+        const { data: companiesData } = await supabase
+          .from('companies')
+          .select('id, name')
+          .order('name');
+          
+        if (companiesData) {
+          setCompanies(companiesData);
+        }
+        
+        // Fetch clients
+        const { data: clientsData } = await supabase
+          .from('clients')
+          .select('id, name, company')
+          .order('name');
+          
+        if (clientsData) {
+          setClients(clientsData.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            company: c.company
+          })));
+        }
       } catch (error) {
-        console.error("Error loading companies/clients for quotes:", error);
+        console.error("Error fetching companies/clients:", error);
       }
     };
-
-    load();
+    
+    fetchCompaniesAndClients();
   }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -526,7 +520,7 @@ export default function CargaGeneralPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="diaVigencia" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      Fecha de Vigencia (+45 días)
+                      Fecha de Vigencia
                     </Label>
                     <div className="relative group">
                       <CalendarIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none" />

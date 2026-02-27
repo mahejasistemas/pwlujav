@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MapPin } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { supabase } from "@/lib/supabaseClient";
 
 /**
  * @typedef {Object} TariffRow
@@ -22,92 +23,117 @@ const CITIES = [
   {
     id: "manzanillo",
     name: "Manzanillo",
-    subtitle: "Manzanillo, Sonora",
-    description:
-      "Puerto de Manzanillo, Sonora.",
+    subtitle: "Manzanillo, Colima",
+    description: "Puerto de Manzanillo, Colima.",
     logoUrl: "https://i.imgur.com/uSLtnQV.png",
+    table: "manzanillo"
   },
   {
     id: "veracruz",
     name: "Veracruz",
-    subtitle: "Veracruz , Veracruz",
-    description:
-      "Puerto de Veracruz, Veracruz.",
+    subtitle: "Veracruz, Veracruz",
+    description: "Puerto de Veracruz, Veracruz.",
     logoUrl: "https://i.imgur.com/jgqrxQ0.png",
+    table: "veracruz"
   },
   {
     id: "altamira",
     name: "Altamira",
-    subtitle: "Altamira,Tamaulipas",
-    description:
-      "Puerto de Altamira, Tamaulipas.",
+    subtitle: "Altamira, Tamaulipas",
+    description: "Puerto de Altamira, Tamaulipas.",
     logoUrl: "https://i.imgur.com/QDvwpMg.png",
+    table: "altamira"
   },
 ];
 
 export default function TarifarioPage() {
   const [tariffs, setTariffs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedCityId, setSelectedCityId] = useState(null);
-
-  const normalize = (text) =>
-    (text || "")
-      .toString()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim();
+  const [cityCounts, setCityCounts] = useState({});
 
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        const res = await fetch("/api/tarifas");
-        if (!res.ok) throw new Error("Error cargando tarifas");
-        const data = await res.json();
-        if (active) setTariffs(Array.isArray(data) ? data : []);
-      } catch (e) {
-        if (active) setError("No se pudieron cargar las tarifas.");
-        console.error(e);
-      } finally {
-        if (active) setLoading(false);
+    // Load counts for each city
+    const loadCounts = async () => {
+      const counts = {};
+      for (const city of CITIES) {
+        if (!supabase) {
+          console.error("Supabase client is not available");
+          continue;
+        }
+        
+        try {
+          const { count, error } = await supabase
+            .from(city.table)
+            .select('*', { count: 'exact', head: true });
+          
+          if (error) {
+            console.error(`Error loading count for ${city.name}:`, error);
+          } else {
+            counts[city.id] = count;
+          }
+        } catch (err) {
+          console.error(`Exception loading count for ${city.name}:`, err);
+        }
       }
+      setCityCounts(counts);
     };
-    load();
-    return () => {
-      active = false;
-    };
+    loadCounts();
   }, []);
 
-  const countsByCity = useMemo(() => {
-    const result = {};
-    CITIES.forEach((c) => {
-      result[c.id] = 0;
-    });
-    tariffs.forEach((t) => {
-      const origen = normalize(t.origen);
-      CITIES.forEach((c) => {
-        const city = normalize(c.name);
-        if (origen.includes(city)) {
-          result[c.id] = (result[c.id] || 0) + 1;
-        }
-      });
-    });
-    return result;
-  }, [tariffs]);
+  useEffect(() => {
+    if (!selectedCityId) {
+      setTariffs([]);
+      return;
+    }
+
+    const city = CITIES.find(c => c.id === selectedCityId);
+    if (!city) return;
+
+    const loadTariffs = async () => {
+      setLoading(true);
+      setError("");
+      
+      try {
+        if (!supabase) throw new Error("Supabase client not initialized");
+        
+        const { data, error } = await supabase
+          .from(city.table)
+          .select('*');
+
+        if (error) throw error;
+        
+        // Map database columns to UI expected format (handling potential naming differences)
+        const mappedData = (data || []).map(item => ({
+          id: item.id,
+          origen: item.origen,
+          destino: item.destino,
+          // Support both 'rabon' and 'precio_rabon' formats
+          rabon: item.rabon ?? item.precio_rabon,
+          sencillo: item.sencillo ?? item.precio_sencillo,
+          sencillo_sobrepeso: item.sencillo_sobrepeso ?? item.precio_sencillo_sp,
+          full: item.full ?? item.precio_full,
+          full_sobrepeso: item.full_sobrepeso ?? item.precio_full_sp
+        }));
+
+        setTariffs(mappedData);
+      } catch (e) {
+        console.error("Load Error:", e);
+        setError(`No se pudieron cargar las tarifas de ${city.name}.`);
+        setTariffs([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadTariffs();
+  }, [selectedCityId]);
 
   const selectedCity = useMemo(
     () => CITIES.find((c) => c.id === selectedCityId) || null,
     [selectedCityId],
   );
-
-  /** @type {TariffRow[]} */
-  const tariffsForSelectedCity = useMemo(() => {
-    if (!selectedCity) return [];
-    const cityName = normalize(selectedCity.name);
-    return tariffs.filter((t) => normalize(t.origen).includes(cityName));
-  }, [selectedCity, tariffs]);
 
   return (
     <div className="p-6 space-y-6">
@@ -154,7 +180,7 @@ export default function TarifarioPage() {
                   <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-center">
                     <div className="text-xs text-gray-500">Tarifas</div>
                     <div className="mt-1 text-lg font-semibold text-gray-900">
-                      {loading || error ? "–" : countsByCity[city.id] || 0}
+                      {cityCounts[city.id] || 0}
                     </div>
                   </div>
                   <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-center">
@@ -216,15 +242,19 @@ export default function TarifarioPage() {
             <p className="text-sm text-red-500">
               No se pudieron cargar las tarifas.
             </p>
-          ) : tariffsForSelectedCity.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No hay tarifas registradas para esta plaza.
-            </p>
+          ) : tariffs.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+              <MapPin className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+              <p className="text-sm font-medium text-gray-900">No hay tarifas registradas</p>
+              <p className="text-xs text-gray-500 mt-1">
+                La tabla <code>{selectedCity.table}</code> está vacía en Supabase.
+              </p>
+            </div>
           ) : (
             <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  Lista de tarifas ({tariffsForSelectedCity.length})
+                  Lista de tarifas ({tariffs.length})
                 </div>
               </div>
               <ScrollArea className="max-h-[60vh] w-full">
@@ -255,7 +285,7 @@ export default function TarifarioPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {tariffsForSelectedCity.map((t) => (
+                    {tariffs.map((t) => (
                       <tr
                         key={t.id}
                         className="hover:bg-gray-50 transition-colors"
