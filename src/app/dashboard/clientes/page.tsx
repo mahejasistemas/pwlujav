@@ -138,18 +138,19 @@ export default function ClientsPage() {
     fetchClients();
     
     // Subscribe to changes
+    let channel: any;
     if (supabase) {
-      const channel = supabase
+      channel = supabase
         .channel('clients_changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, () => {
           fetchClients();
         })
         .subscribe();
-        
-      return () => {
-        supabase.removeChannel(channel);
-      };
     }
+        
+    return () => {
+      if (channel) supabase?.removeChannel(channel);
+    };
   }, []);
 
   // Load companies from Supabase
@@ -185,18 +186,19 @@ export default function ClientsPage() {
 
     fetchCompanies();
 
+    let channel: any;
     if (supabase) {
-      const channel = supabase
+      channel = supabase
         .channel('companies_changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, () => {
           fetchCompanies();
         })
         .subscribe();
-        
-      return () => {
-        supabase.removeChannel(channel);
-      };
     }
+        
+    return () => {
+      if (channel) supabase?.removeChannel(channel);
+    };
   }, []);
   
   // Create Client State
