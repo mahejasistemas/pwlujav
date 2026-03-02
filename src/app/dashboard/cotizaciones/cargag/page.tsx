@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,8 @@ import { Plus, Trash2, Calendar as CalendarIcon } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 type CompanySelectionMode = "manual" | "company" | "client";
+
+type LoadType = "full" | "sencillo" | "full_sobrepeso" | "sencillo_sobrepeso" | "rabon";
 
 interface SimpleCompany {
   id: string;
@@ -47,7 +49,7 @@ export interface GeneralCargoEquipment {
 
 interface QuoteOption {
   equipmentName: string;
-  tariffType: TariffType;
+  tariffType: string;
   basePrice: number;
   currency: "USD" | "EUR" | "MXN";
 }
@@ -81,6 +83,84 @@ export default function CargaGeneralPage() {
     { id: "1", cantidad: "1", largo: "", ancho: "", alto: "", peso: "" }
   ]);
   const [divisa, setDivisa] = useState<"USD" | "EUR" | "MXN" | "">("MXN");
+
+  // --- PERSISTENCE LOGIC START ---
+  // Load data from localStorage on mount
+  useEffect(() => {
+    const savedData = localStorage.getItem("cotizacion_cargag_draft");
+    if (savedData) {
+      try {
+        const parsed = JSON.parse(savedData);
+        if (parsed.empresa) setEmpresa(parsed.empresa);
+        if (parsed.diaExpedicion) setDiaExpedicion(parsed.diaExpedicion);
+        if (parsed.diaVigencia) setDiaVigencia(parsed.diaVigencia);
+        if (parsed.emitente) setEmitente(parsed.emitente);
+        // numeroCotizacion is auto-generated or managed, maybe skip or load if manually edited? 
+        // Let's load it if it exists, but the effect [origen] might overwrite it.
+        // if (parsed.numeroCotizacion) setNumeroCotizacion(parsed.numeroCotizacion);
+        
+        if (parsed.origen) setOrigen(parsed.origen);
+        if (parsed.destino) setDestino(parsed.destino);
+        if (parsed.cargoItems) setCargoItems(parsed.cargoItems);
+        if (parsed.divisa) setDivisa(parsed.divisa);
+        if (parsed.servicioSeleccionado) setServicioSeleccionado(parsed.servicioSeleccionado);
+        if (parsed.loadType) setLoadType(parsed.loadType);
+        if (parsed.companySelectionMode) setCompanySelectionMode(parsed.companySelectionMode);
+      } catch (e) {
+        console.error("Error loading draft:", e);
+      }
+    }
+  }, []);
+
+  // Save data to localStorage whenever it changes
+  useEffect(() => {
+    const dataToSave = {
+      empresa,
+      diaExpedicion,
+      diaVigencia,
+      emitente,
+      numeroCotizacion,
+      origen,
+      destino,
+      cargoItems,
+      divisa
+    };
+    localStorage.setItem("cotizacion_cargag_draft", JSON.stringify(dataToSave));
+  }, [
+    empresa,
+    diaExpedicion,
+    diaVigencia,
+    emitente,
+    numeroCotizacion,
+    origen,
+    destino,
+    cargoItems,
+    divisa
+  ]);
+
+  const clearDraft = () => {
+    localStorage.removeItem("cotizacion_cargag_draft");
+    // Reset state to defaults
+    setEmpresa("");
+    setDiaExpedicion(new Date().toISOString().split("T")[0]);
+    const date = new Date();
+    date.setDate(date.getDate() + 45);
+    setDiaVigencia(date.toISOString().split("T")[0]);
+    // emitente is usually set from auth user, so we might want to re-fetch or keep it
+    setOrigen("");
+    setDestino("");
+    setSearchedOrigen("");
+    setSearchedDestino("");
+    setCargoItems([{ id: "1", cantidad: "1", largo: "", ancho: "", alto: "", peso: "" }]);
+    setDivisa("MXN");
+    setServicioSeleccionado("");
+    setLoadType("");
+    setCompanySelectionMode("manual");
+    setQuoteOptions([]);
+    setQuoteError(null);
+    window.location.reload(); // Simple way to ensure clean slate including auth user re-fetch
+  };
+  // --- PERSISTENCE LOGIC END ---
 
   const addCargoItem = () => {
     setCargoItems([
@@ -118,12 +198,49 @@ export default function CargaGeneralPage() {
   const [servicesError, setServicesError] = useState<string | null>(null);
   const [servicioSeleccionado, setServicioSeleccionado] = useState("");
   const [companySelectionMode, setCompanySelectionMode] = useState<CompanySelectionMode>("manual");
+  const [loadType, setLoadType] = useState<LoadType | "">("");
 
   const [quoteOptions, setQuoteOptions] = useState<QuoteOption[]>([]);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
   const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  const selectedService = useMemo(() => 
+    availableServices.find(s => s.id === servicioSeleccionado),
+    [availableServices, servicioSeleccionado]
+  );
+
+  const allowedLoadTypes = useMemo(() => {
+    if (!selectedService) return [];
+    
+    const name = selectedService.name.toLowerCase();
+    
+    // Rabon only allows Rabon
+    if (name.includes("rabon")) {
+      return ["rabon"];
+    }
+    
+    // 53ft allows Sencillo (Single) and Sencillo Sobrepeso
+    if (name.includes("53")) {
+      return ["sencillo", "sencillo_sobrepeso"];
+    }
+    
+    // 20ft and 40ft allow Full and Sencillo
+    if (name.includes("20") || name.includes("40")) {
+      return ["sencillo", "sencillo_sobrepeso", "full", "full_sobrepeso"];
+    }
+    
+    // Default fallback
+    return ["sencillo", "sencillo_sobrepeso", "full", "full_sobrepeso"];
+  }, [selectedService]);
+
+  // Reset loadType if not allowed
+  useEffect(() => {
+    if (loadType && allowedLoadTypes.length > 0 && !allowedLoadTypes.includes(loadType as any)) {
+      setLoadType("");
+    }
+  }, [allowedLoadTypes, loadType]);
 
   useEffect(() => {
     if (diaExpedicion) {
@@ -226,6 +343,58 @@ export default function CargaGeneralPage() {
     fetchCompaniesAndClients();
   }, []);
 
+  // Auto-generate folio when origin changes
+  useEffect(() => {
+    if (!origen) return;
+
+    const generateFolio = () => {
+      // 1. Extract 3 letters from State (or Origin)
+      let prefix = "GEN"; // Default
+      const parts = origen.split(",");
+      
+      if (parts.length > 1) {
+        // Assume format "City, State"
+        // Get the last part as state
+        const state = parts[parts.length - 1].trim();
+        // Remove common words like "Estado de" if present, though unlikely in simple input
+        // Just take first 3 chars
+        prefix = state.substring(0, 3).toUpperCase();
+      } else {
+        // Use first 3 letters of origin
+        prefix = origen.substring(0, 3).toUpperCase();
+      }
+      
+      // Normalize prefix to be alphanumeric only
+      prefix = prefix.replace(/[^A-Z0-9]/g, "");
+
+      // Ensure we have 3 letters if possible, or pad
+      if (prefix.length < 3) {
+        prefix = prefix.padEnd(3, "X");
+      }
+      
+      // Limit to 3 chars
+      prefix = prefix.substring(0, 3);
+
+      // 2. Year YY (Last 2 digits)
+      const year = new Date().getFullYear().toString().slice(-2);
+
+      // 3. Sequence (001 for now)
+      // Since we don't have a way to check the last folio in the frontend easily without an API call,
+      // and the user said "starts with 001", we default to 001.
+      // In a real implementation, this should probably come from the backend or an async check.
+      const sequence = "001";
+
+      return `${prefix}${year}${sequence}`;
+    };
+
+    // Only update if the user hasn't manually entered a completely different format?
+    // User said "auto-generates but can be modified".
+    // We will update it whenever origin changes to a valid string.
+    const newFolio = generateFolio();
+    setNumeroCotizacion(newFolio);
+    
+  }, [origen]);
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSearchedOrigen(origen.trim());
@@ -253,45 +422,50 @@ export default function CargaGeneralPage() {
       const maxAlto = Math.max(...cargoItems.map(i => parseFloat(i.alto) || 0));
       const totalPesoNum = totalPeso;
 
-      const tarifasRes = await fetch("/api/tarifas");
-      if (!tarifasRes.ok) {
-        setQuoteError("No se pudieron obtener las tarifas.");
-        return;
-      }
-      const tarifasData = (await tarifasRes.json()) as TariffRow[];
-
-      const normalize = (text: string) =>
-        (text || "")
-          .toString()
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .trim();
-
-      const origenNorm = normalize(origenTexto);
-      const destinoNorm = normalize(destinoTexto);
-
-      const matchingTariffs = tarifasData.filter((t) => {
-        const tOrigen = normalize(t.origen);
-        const tDestino = normalize(t.destino);
-        const matchDirect =
-          tOrigen.includes(origenNorm) && tDestino.includes(destinoNorm);
-        const matchReverse =
-          tOrigen.includes(destinoNorm) && tDestino.includes(origenNorm);
-        return matchDirect || matchReverse;
-      });
-
-      if (!matchingTariffs.length) {
-        setQuoteError("No se encontró una tarifa para ese origen y destino.");
-        return;
-      }
-
-      const tarifa = matchingTariffs[0];
-
       if (!supabase) {
         setQuoteError("Supabase no está configurado para consultar carga general.");
         return;
       }
+
+      // Determine which table to search based on Origin
+      const originLower = origenTexto.toLowerCase();
+      let baseOrigen = "";
+      
+      if (originLower.includes("manzanillo")) {
+        baseOrigen = "Manzanillo";
+      } else if (originLower.includes("veracruz")) {
+        baseOrigen = "Veracruz";
+      } else if (originLower.includes("altamira")) {
+        baseOrigen = "Altamira";
+      } else {
+        setQuoteError("Por el momento solo contamos con tarifas desde Manzanillo, Veracruz y Altamira.");
+        return;
+      }
+
+      // Query Supabase directly on the consolidated table
+      // Note: We use ilike for case-insensitive matching. 
+      // We assume the destination in DB is stored somewhat cleanly.
+      
+      const { data: tariffData, error: tariffError } = await supabase
+        .from("tarifas_generales")
+        .select("*")
+        .ilike('origen', `%${baseOrigen}%`)
+        .ilike('destino', `%${destinoTexto}%`); // Simple partial match
+
+      if (tariffError) {
+        console.error("Error fetching tariff:", tariffError);
+        setQuoteError(tariffError.message);
+        return;
+      }
+
+      if (!tariffData || tariffData.length === 0) {
+        setQuoteError(`No se encontró una tarifa desde ${baseOrigen} hacia ${destinoTexto}.`);
+        return;
+      }
+
+      // If multiple results, we might want to pick the best match.
+      // For now, let's pick the first one.
+      const tarifa = tariffData[0]; // Simplest approach for now
 
       // We already have services in state, let's use them
       let equipmentsToUse = availableServices;
@@ -358,29 +532,54 @@ export default function CargaGeneralPage() {
         (divisa as "USD" | "EUR" | "MXN") || "MXN";
 
       const options: QuoteOption[] = [];
+      
+      // Filter logic:
+      // If loadType is selected, we ONLY show that option for the selected equipment (if valid)
+      // If no loadType, we default to previous behavior (show first 2 options)
+      
+      let itemsToProcess = [];
+      if (selectedEquipment) {
+        itemsToProcess = [selectedEquipment];
+      } else {
+        itemsToProcess = sorted.slice(0, 2);
+      }
 
-      for (const eq of sorted.slice(0, 2)) {
-        const tariffType = eq.tariff_type;
+      for (const eq of itemsToProcess) {
+        // Determine tariff type based on user selection or default logic
+        // If user selected a specific loadType, we use that. 
+        // Otherwise, we fallback to the equipment's default type.
+        let tariffTypeToUse: string = loadType ? loadType : eq.tariff_type;
+        
         let basePrice = 0;
 
-        if (tariffType === "rabon") {
+        if (tariffTypeToUse === "rabon") {
           basePrice = tarifa.rabon;
-        } else if (tariffType === "sencillo") {
+        } else if (tariffTypeToUse === "sencillo") {
           basePrice = tarifa.sencillo;
-        } else if (tariffType === "full") {
+        } else if (tariffTypeToUse === "sencillo_sobrepeso") {
+          basePrice = tarifa.sencillo_sobrepeso;
+        } else if (tariffTypeToUse === "full") {
           basePrice = tarifa.full;
+        } else if (tariffTypeToUse === "full_sobrepeso") {
+          basePrice = tarifa.full_sobrepeso;
         }
 
-        options.push({
-          equipmentName: eq.name,
-          tariffType,
-          basePrice,
-          currency,
-        });
+        // Only add if we found a valid price (or if we want to show 0/unavailable)
+        // For now, let's assume if price is 0/undefined it might be invalid for that route, but we show it.
+        // Better: check if basePrice is valid.
+        
+        if (basePrice !== undefined && basePrice !== null) {
+            options.push({
+              equipmentName: eq.name,
+              tariffType: tariffTypeToUse, 
+              basePrice,
+              currency,
+            });
+        }
       }
 
       if (!options.length) {
-        setQuoteError("No se pudo calcular una tarifa para los equipos seleccionados.");
+        setQuoteError("No se pudo calcular una tarifa para la configuración seleccionada.");
         return;
       }
 
@@ -402,14 +601,20 @@ export default function CargaGeneralPage() {
         : `https://www.google.com/maps?q=${encodeURIComponent("Mexico")}&output=embed`;
 
   return (
-    <div className="flex-1 space-y-6 p-8 pt-6">
+    <div className="space-y-6 p-8 pt-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-gray-900">
           Cotización - Carga general
         </h2>
-        <p className="text-sm text-gray-600 mt-1">
-          Completa los datos para generar una cotización de carga general.
-        </p>
+        <div className="flex justify-between items-center mt-1">
+          <p className="text-sm text-gray-600">
+            Completa los datos para generar una cotización de carga general.
+          </p>
+          <Button variant="outline" size="sm" onClick={clearDraft} className="text-red-500 hover:text-red-700 hover:bg-red-50 border-red-200">
+            <Trash2 className="w-4 h-4 mr-2" />
+            Limpiar formulario
+          </Button>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -503,9 +708,7 @@ export default function CargaGeneralPage() {
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
-                    <Label htmlFor="diaExpedicion" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      Fecha de Expedición
-                    </Label>
+                    <Label htmlFor="diaExpedicion">Fecha de Expedición</Label>
                     <div className="relative group">
                       <CalendarIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none" />
                       <Input
@@ -519,9 +722,7 @@ export default function CargaGeneralPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="diaVigencia" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      Fecha de Vigencia
-                    </Label>
+                    <Label htmlFor="diaVigencia">Fecha de Vigencia</Label>
                     <div className="relative group">
                       <CalendarIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 group-focus-within:text-primary transition-colors pointer-events-none" />
                       <Input
@@ -535,9 +736,7 @@ export default function CargaGeneralPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="numeroCotizacion" className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      No. Cotización
-                    </Label>
+                    <Label htmlFor="numeroCotizacion">No. Cotización</Label>
                     <Input
                       id="numeroCotizacion"
                       className="h-11 border-gray-200 bg-white hover:border-gray-300 focus:ring-2 focus:ring-primary/20 transition-all"
@@ -545,6 +744,72 @@ export default function CargaGeneralPage() {
                       onChange={(event) => setNumeroCotizacion(event.target.value)}
                       placeholder="Ej. COT-0001"
                     />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Tipo de Servicio</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="servicio">Servicio / Equipo</Label>
+                    <Select
+                      value={servicioSeleccionado}
+                      onValueChange={(value) => setServicioSeleccionado(value)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecciona un servicio" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {loadingServices ? (
+                          <SelectItem value="loading" disabled>
+                            Cargando servicios...
+                          </SelectItem>
+                        ) : servicesError ? (
+                          <SelectItem value="error" disabled>
+                            Error: {servicesError}
+                          </SelectItem>
+                        ) : availableServices.length === 0 ? (
+                          <SelectItem value="none" disabled>
+                            No hay servicios disponibles
+                          </SelectItem>
+                        ) : (
+                          availableServices.map((eq) => (
+                            <SelectItem key={eq.id} value={eq.id}>
+                              {eq.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <div className="text-[10px] text-gray-400 mt-1">
+                      Servicios cargados: {availableServices.length}
+                      {availableServices.length > 0 && ` (Ejemplo: ${availableServices[0].name})`}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="loadType">Tipo de Carga</Label>
+                    <Select
+                      value={loadType}
+                      onValueChange={(value) => setLoadType(value as LoadType)}
+                      disabled={!selectedService}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={!selectedService ? "Selecciona un servicio primero" : "Selecciona tipo de carga"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allowedLoadTypes.includes("full") && <SelectItem value="full">Full</SelectItem>}
+                        {allowedLoadTypes.includes("sencillo") && <SelectItem value="sencillo">Sencillo</SelectItem>}
+                        {allowedLoadTypes.includes("full_sobrepeso") && <SelectItem value="full_sobrepeso">Full (Sobrepeso)</SelectItem>}
+                        {allowedLoadTypes.includes("sencillo_sobrepeso") && <SelectItem value="sencillo_sobrepeso">Sencillo (Sobrepeso)</SelectItem>}
+                        {allowedLoadTypes.includes("rabon") && <SelectItem value="rabon">Rabon</SelectItem>}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </CardContent>
@@ -565,44 +830,6 @@ export default function CargaGeneralPage() {
                 </Button>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="space-y-2 pb-2 border-b border-gray-100">
-                  <Label htmlFor="servicio">Servicio / Equipo</Label>
-                  <Select
-                    value={servicioSeleccionado}
-                    onValueChange={(value) => setServicioSeleccionado(value)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecciona un servicio" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {loadingServices ? (
-                        <SelectItem value="loading" disabled>
-                          Cargando servicios...
-                        </SelectItem>
-                      ) : servicesError ? (
-                        <SelectItem value="error" disabled>
-                          Error: {servicesError}
-                        </SelectItem>
-                      ) : availableServices.length === 0 ? (
-                        <SelectItem value="none" disabled>
-                          No hay servicios disponibles
-                        </SelectItem>
-                      ) : (
-                        availableServices.map((eq) => (
-                          <SelectItem key={eq.id} value={eq.id}>
-                            {eq.name}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {/* Debug info - Remove in production */}
-                  <div className="text-[10px] text-gray-400 mt-1">
-                    Servicios cargados: {availableServices.length}
-                    {availableServices.length > 0 && ` (Ejemplo: ${availableServices[0].name})`}
-                  </div>
-                </div>
-
                 <div className="space-y-4">
                   {cargoItems.map((item, index) => (
                     <div key={item.id} className="relative space-y-4 rounded-lg border border-gray-100 p-4 pt-6">

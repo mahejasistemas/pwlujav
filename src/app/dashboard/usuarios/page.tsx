@@ -12,7 +12,8 @@ import {
   Search,
   ShieldAlert,
   Check,
-  ChevronDown
+  ChevronDown,
+  Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -22,7 +23,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { deleteUser } from "./actions";
 
 type Role = "admin" | "user" | "sistemas";
 
@@ -180,6 +183,39 @@ export default function UsersPage() {
       setUsers(originalUsers);
       console.error("Error updating role:", error);
       toast.error("Error al actualizar rol: " + (error.message || "Desconocido"));
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!supabase) {
+      toast.error("No se pudo conectar a la base de datos");
+      return;
+    }
+
+    if (currentUserRole !== 'admin') {
+      toast.error("Solo los administradores pueden eliminar usuarios.");
+      return;
+    }
+
+    if (!window.confirm("¿Estás seguro de que deseas eliminar este usuario permanentemente? Esta acción no se puede deshacer.")) {
+      return;
+    }
+
+    // Optimistic Update
+    const originalUsers = [...users];
+    setUsers(prev => prev.filter(u => u.id !== userId));
+
+    try {
+      const result = await deleteUser(userId);
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      toast.success("Usuario eliminado correctamente");
+    } catch (error: any) {
+      // Revert on error
+      setUsers(originalUsers);
+      console.error("Error deleting user:", error);
+      toast.error("Error al eliminar usuario: " + (error.message || "Desconocido"));
     }
   };
 
@@ -347,6 +383,16 @@ export default function UsersPage() {
                                <div className="flex items-center justify-between w-full">
                                   <span>Sistemas</span>
                                   {user.role === 'sistemas' && <Check className="w-3 h-3" />}
+                               </div>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem 
+                              onClick={() => handleDeleteUser(user.id)}
+                              className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
+                            >
+                               <div className="flex items-center justify-between w-full">
+                                  <span>Eliminar Usuario</span>
+                                  <Trash2 className="w-3 h-3" />
                                </div>
                             </DropdownMenuItem>
                           </DropdownMenuContent>
