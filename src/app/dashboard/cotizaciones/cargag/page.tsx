@@ -1011,12 +1011,12 @@ export default function CargaGeneralPage() {
             </Card>
           </div>
 
-          <div className="space-y-4">
-            <Card className="h-full">
+          <div className="space-y-4 h-full flex flex-col">
+            <Card className="flex flex-col h-full">
               <CardHeader>
                 <CardTitle className="text-base">Origen y destino</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4 flex-1 flex flex-col">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="origen">Origen</Label>
@@ -1062,7 +1062,7 @@ export default function CargaGeneralPage() {
                   )}
                 </div>
 
-                <div className="mt-2 h-64 md:h-80 w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                <div className="mt-2 flex-1 w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50 min-h-[400px]">
                   <iframe
                     key={mapUrl}
                     src={mapUrl}
@@ -1089,7 +1089,85 @@ export default function CargaGeneralPage() {
               )}
 
               {quoteError && !quoteLoading && (
-                <p className="text-sm text-red-500">{quoteError}</p>
+                <div className="space-y-4">
+                  <p className="text-sm text-red-500 font-medium">{quoteError}</p>
+                  
+                  {/* Manual Tariff Entry Fallback */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+                     <div className="flex items-start gap-2">
+                       <div className="mt-0.5 text-amber-600">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>
+                       </div>
+                       <div>
+                         <h4 className="text-sm font-semibold text-amber-800">No existe tarifa registrada</h4>
+                         <p className="text-xs text-amber-700 mt-1">
+                           No encontramos una tarifa automática para esta ruta. Puedes ingresar el costo manualmente para generar el ticket.
+                         </p>
+                       </div>
+                     </div>
+                     
+                     <div className="flex gap-2 items-end mt-2">
+                        <div className="flex-1 space-y-1">
+                          <Label htmlFor="manualPrice" className="text-xs">Costo del Flete ({divisa})</Label>
+                          <Input 
+                             id="manualPrice"
+                             type="number" 
+                             placeholder="0.00" 
+                             className="h-8 text-sm bg-white"
+                             onChange={(e) => {
+                                // We'll store this in a temporary state or just pass it directly if we had a state
+                                // For simplicity, let's create a quick state for manual price override
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val) && val > 0) {
+                                   // Update options manually
+                                   const newOption: QuoteOption = {
+                                      equipmentName: servicioSeleccionado ? 
+                                        (availableServices.find(s => s.id === servicioSeleccionado)?.name || "Flete Dedicado") 
+                                        : "Flete Dedicado",
+                                      tariffType: loadType || "Manual",
+                                      basePrice: val,
+                                      currency: divisa as any
+                                   };
+                                   setQuoteOptions([newOption]);
+                                } else {
+                                   setQuoteOptions([]);
+                                }
+                             }}
+                           />
+                        </div>
+                        <Button 
+                           type="button"
+                           size="sm"
+                           className="h-8 bg-amber-600 hover:bg-amber-700 text-white"
+                           onClick={() => {
+                              // If we have options (set by input above), clear error and let user proceed
+                              if (quoteOptions.length > 0) {
+                                 setQuoteError(null);
+                                 // Trigger ticket view generation
+                                 const selectedOption = quoteOptions[0];
+                                 setTicketData({
+                                   ...selectedOption,
+                                   empresa,
+                                   emitente,
+                                   fechaExpedicion: diaExpedicion,
+                                   fechaVigencia: diaVigencia,
+                                   folio: numeroCotizacion,
+                                   origen: searchedOrigen || origen,
+                                   destino: searchedDestino || destino,
+                                   items: cargoItems,
+                                   tipoCarga: loadType || "Manual",
+                                   tipoServicio: "Flete Dedicado (Manual)"
+                                 });
+                                 setShowTicket(true);
+                              }
+                           }}
+                           disabled={quoteOptions.length === 0}
+                        >
+                           Usar esta tarifa
+                        </Button>
+                     </div>
+                  </div>
+                </div>
               )}
 
               {!quoteLoading && !quoteError && quoteOptions.length === 0 && (
