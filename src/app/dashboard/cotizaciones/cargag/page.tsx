@@ -6,8 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Calendar as CalendarIcon } from "lucide-react";
+import { Plus, Trash2, Calendar as CalendarIcon, FileText } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { PDFCotizacion } from "./pdfcotizacion";
 
 type CompanySelectionMode = "manual" | "company" | "client";
 
@@ -203,6 +204,10 @@ export default function CargaGeneralPage() {
   const [quoteOptions, setQuoteOptions] = useState<QuoteOption[]>([]);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  
+  // --- TICKET VIEW STATE ---
+  const [showTicket, setShowTicket] = useState(false);
+  const [ticketData, setTicketData] = useState<any>(null);
 
   const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
@@ -584,6 +589,24 @@ export default function CargaGeneralPage() {
       }
 
       setQuoteOptions(options);
+      
+      // We prepare the ticket data, but DO NOT show it automatically.
+      const selectedOption = options[0];
+      setTicketData({
+        ...selectedOption,
+        empresa,
+        emitente,
+        fechaExpedicion: diaExpedicion,
+        fechaVigencia: diaVigencia,
+        folio: numeroCotizacion,
+        origen: searchedOrigen,
+        destino: searchedDestino,
+        items: cargoItems,
+        tipoCarga: loadType || selectedOption.tariffType,
+        tipoServicio: selectedOption.equipmentName
+      });
+      // setShowTicket(true); // Removed auto-switch
+      
     } finally {
       setQuoteLoading(false);
     }
@@ -600,20 +623,59 @@ export default function CargaGeneralPage() {
         ? `https://www.google.com/maps/embed/v1/place?key=${mapsApiKey}&q=${encodeURIComponent("Mexico")}`
         : `https://www.google.com/maps?q=${encodeURIComponent("Mexico")}&output=embed`;
 
+  if (showTicket && ticketData) {
+    return (
+      <div className="space-y-6 p-8 pt-6 max-w-4xl mx-auto print:p-0 print:max-w-none">
+        <div className="flex justify-between items-center mb-6 no-print print:hidden">
+          <Button variant="outline" onClick={() => setShowTicket(false)}>
+            ← Volver al formulario
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => window.print()}>
+              Imprimir / PDF
+            </Button>
+            <Button onClick={() => {
+               // Here we could implement saving the finalized quote to DB
+               alert("Cotización guardada (Simulación)");
+            }}>
+              Guardar Cotización
+            </Button>
+          </div>
+        </div>
+
+        <div className="bg-white border border-gray-200 shadow-lg rounded-xl overflow-hidden print:shadow-none print:border-none print:rounded-none">
+          {/* Render PDF Component for Print/View */}
+          <PDFCotizacion data={ticketData} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 p-8 pt-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight text-gray-900">
-          Cotización - Carga general
-        </h2>
-        <div className="flex justify-between items-center mt-1">
-          <p className="text-sm text-gray-600">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight text-gray-900">
+            Cotización - Carga general
+          </h2>
+          <p className="text-sm text-gray-600 mt-1">
             Completa los datos para generar una cotización de carga general.
           </p>
-          <Button variant="outline" size="sm" onClick={clearDraft} className="text-red-500 hover:text-red-700 hover:bg-red-50 border-red-200">
-            <Trash2 className="w-4 h-4 mr-2" />
-            Limpiar formulario
-          </Button>
+        </div>
+        <div className="flex gap-2">
+           {ticketData && (
+             <Button 
+                onClick={() => setShowTicket(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+             >
+                <FileText className="w-4 h-4 mr-2" />
+                Ver Ticket
+             </Button>
+           )}
+           <Button variant="outline" size="sm" onClick={clearDraft} className="text-red-500 hover:text-red-700 hover:bg-red-50 border-red-200">
+              <Trash2 className="w-4 h-4 mr-2" />
+              Limpiar
+           </Button>
         </div>
       </div>
 
@@ -980,10 +1042,10 @@ export default function CargaGeneralPage() {
 
                 <Button
                   type="submit"
-                  className="w-full"
+                  className="w-full bg-blue-600 hover:bg-blue-700"
                   disabled={!origen.trim() || !destino.trim()}
                 >
-                  Mostrar en mapa
+                  Mostrar en mapa y Calcular Tarifa
                 </Button>
 
                 <div className="mt-2 text-xs text-gray-500">

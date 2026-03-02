@@ -40,15 +40,19 @@ export default function DashboardLayout({
   return (
     <div id="dashboard-layout" className="flex min-h-screen bg-gray-50">
       {/* Sidebar (Fixed Left) */}
-      <Sidebar />
+      <div className="print:hidden">
+        <Sidebar />
+      </div>
       
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 ml-[72px]">
+      <div className="flex-1 flex flex-col min-w-0 ml-[72px] print:ml-0">
         {/* Navbar (Top) */}
-        <Navbar />
+        <div className="print:hidden">
+          <Navbar />
+        </div>
         
         {/* Page Content (Scrollable) */}
-        <main className="flex-1 bg-gray-50/50">
+        <main className="flex-1 bg-gray-50/50 print:bg-white">
           {children}
         </main>
       </div>
