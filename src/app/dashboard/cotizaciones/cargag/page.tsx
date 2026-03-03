@@ -684,9 +684,49 @@ useEffect(() => {
             <Button variant="outline" onClick={() => window.print()}>
               Imprimir / PDF
             </Button>
-            <Button onClick={() => {
-               // Here we could implement saving the finalized quote to DB
-               alert("Cotización guardada (Simulación)");
+            <Button onClick={async () => {
+               // Logic to save quote to Supabase
+               if (!supabase) {
+                 alert("Error: Cliente Supabase no disponible.");
+                 return;
+               }
+               
+               const quoteToSave = {
+                 folio: ticketData.folio,
+                 cliente_nombre: ticketData.nombreCliente || ticketData.empresa, // Fallback if name is empty
+                 empresa_nombre: typeof ticketData.empresa === 'string' ? ticketData.empresa : ticketData.empresa?.name,
+                 fecha_expedicion: ticketData.fechaExpedicion,
+                 fecha_vigencia: ticketData.fechaVigencia,
+                 origen: ticketData.origen,
+                 destino: ticketData.destino,
+                 monto_total: (ticketData.basePrice || 0) + (ticketData.precioTolva ? parseFloat(ticketData.precioTolva) : 0), // Calculate total
+                 divisa: ticketData.divisa || 'MXN',
+                 estado: 'pendiente',
+                 items: ticketData.items,
+                 emitente: ticketData.emitente,
+                 tipo_servicio: ticketData.tipoServicio,
+                 detalles_adicionales: {
+                    tiempoCargaDescarga: ticketData.tiempoCargaDescarga,
+                    precioTolva: ticketData.precioTolva,
+                    tipoCarga: ticketData.tipoCarga
+                 }
+               };
+
+               try {
+                 const { error } = await supabase
+                   .from('cotizaciones')
+                   .insert([quoteToSave]);
+                 
+                 if (error) {
+                   console.error("Error guardando cotización:", error);
+                   alert("Error al guardar la cotización: " + error.message);
+                 } else {
+                   alert("Cotización guardada exitosamente en el historial.");
+                 }
+               } catch (err: any) {
+                 console.error("Error inesperado:", err);
+                 alert("Error inesperado al guardar.");
+               }
             }}>
               Guardar Cotización
             </Button>

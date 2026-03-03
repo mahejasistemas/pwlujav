@@ -15,7 +15,10 @@ import {
   FileText,
   Search,
   MoreHorizontal,
-  FileDown
+  FileDown,
+  Receipt,
+  Eye,
+  Package
 } from "lucide-react";
 import { 
   Select,
@@ -24,19 +27,112 @@ import {
   SelectTrigger,
   SelectValue 
 } from "@/components/ui/select";
-import { toast } from "sonner";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { PDFCotizacion } from "../cotizaciones/cargag/pdfcotizacion";
 
 export default function ReportsPage() {
   const [timeRange, setTimeRange] = useState("last_30_days");
   const [totalClients, setTotalClients] = useState<number | string>("-");
-
-  // Mock data for Quotes History
-  const quotesHistory: any[] = [];
+  const [quotesHistory, setQuotesHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedQuote, setSelectedQuote] = useState<any>(null);
+  const [ticketData, setTicketData] = useState<any>(null);
 
   useEffect(() => {
-    // Firebase stats fetching removed
-    setTotalClients(0);
-  }, []);
+    if (selectedQuote) {
+      // Map selectedQuote to TicketData format required by PDFCotizacion
+      const data = selectedQuote.originalData;
+      const mappedData = {
+        folio: data.folio || selectedQuote.id,
+        fechaExpedicion: data.fecha_expedicion || new Date(),
+        fechaVigencia: data.fecha_vigencia || new Date(new Date().setDate(new Date().getDate() + 15)), // Default 15 days validity
+        divisa: data.divisa || 'MXN',
+        empresa: { 
+          name: data.empresa_nombre || data.cliente_nombre || "Cliente General",
+          email: data.cliente_email || ""
+        },
+        emitente: data.usuario_id || "Ventas", // Fallback
+        origen: data.origen || "N/A",
+        destino: data.destino || "N/A",
+        items: Array.isArray(data.items) ? data.items : [],
+        tipoCarga: data.tipo_carga || "General",
+        tipoServicio: data.tipo_servicio || "Flete Terrestre",
+        basePrice: data.monto_total || 0,
+        equipmentName: data.equipo || "Caja Seca 53'", // Fallback
+        nombreCliente: data.cliente_nombre || "",
+        tiempoCargaDescarga: data.tiempo_carga_descarga || "24",
+        precioTolva: data.precio_tolva || "0"
+      };
+      setTicketData(mappedData);
+    }
+  }, [selectedQuote]);
+
+  useEffect(() => {
+    const fetchQuotes = async () => {
+      setLoading(true);
+      if (!supabase) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('cotizaciones')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error("Error fetching quotes:", error);
+          toast.error("Error al cargar historial de cotizaciones");
+        } else if (data) {
+          // Transform data to match UI expected format
+          const formattedQuotes = data.map(q => ({
+            id: q.folio || q.id.substring(0, 8),
+            client: q.cliente_nombre || q.empresa_nombre || "Cliente General",
+            date: q.fecha_expedicion ? new Date(q.fecha_expedicion).toLocaleDateString('es-MX', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            }) : 'Fecha no disponible',
+            amount: new Intl.NumberFormat('es-MX', { style: 'currency', currency: q.divisa || 'MXN' }).format(q.monto_total || 0),
+            status: q.estado || 'pendiente',
+            itemsCount: Array.isArray(q.items) ? q.items.length : 0,
+            originalData: q // Keep full data if needed for download/details
+          }));
+          setQuotesHistory(formattedQuotes);
+          
+          // Calculate unique clients count roughly
+          const uniqueClients = new Set(data.map(q => q.cliente_nombre || q.empresa_nombre).filter(Boolean)).size;
+          setTotalClients(uniqueClients);
+        }
+      } catch (err) {
+        console.error("Unexpected error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchQuotes();
+  }, [timeRange]); // Add timeRange logic filtering later if needed
 
   const handleDownloadQuote = (id: string) => {
     toast.success(`Descargando cotización ${id}...`);
@@ -45,10 +141,10 @@ export default function ReportsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "aprobada": return "bg-green-100 text-green-700 border-green-200";
-      case "pendiente": return "bg-amber-100 text-amber-700 border-amber-200";
-      case "rechazada": return "bg-red-100 text-red-700 border-red-200";
-      default: return "bg-gray-100 text-gray-700 border-gray-200";
+      case "aprobada": return "bg-green-100 text-green-700 border-green-200 hover:bg-green-100/80";
+      case "pendiente": return "bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100/80";
+      case "rechazada": return "bg-red-100 text-red-700 border-red-200 hover:bg-red-100/80";
+      default: return "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-100/80";
     }
   };
 
@@ -81,9 +177,9 @@ export default function ReportsPage() {
   ];
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto">
+    <div className="p-8 max-w-[1600px] mx-auto space-y-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Reportes de Cotizaciones</h1>
           <p className="text-gray-500 text-sm mt-1">Gestiona y descarga el historial de cotizaciones generadas</p>
@@ -103,37 +199,38 @@ export default function ReportsPage() {
             </SelectContent>
           </Select>
           
-          <button className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors">
-            <Download className="w-4 h-4" />
+          <Button className="bg-black text-white hover:bg-gray-800">
+            <Download className="w-4 h-4 mr-2" />
             Exportar Reporte
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {kpis.map((kpi, index) => (
-          <div key={index} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div className={`p-3 rounded-lg ${kpi.color}`}>
-                <kpi.icon className="w-6 h-6" />
+          <Card key={index} className="border-gray-200 shadow-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className={`p-3 rounded-lg ${kpi.color}`}>
+                  <kpi.icon className="w-6 h-6" />
+                </div>
+                <Badge variant="secondary" className="font-normal text-gray-500">
+                  {kpi.change}
+                </Badge>
               </div>
-              <div className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full bg-gray-100 text-gray-500`}>
-                <span className="font-bold">-</span>
-                {kpi.change}
+              <div>
+                <p className="text-sm text-gray-500 font-medium">{kpi.title}</p>
+                <h3 className="text-2xl font-bold text-gray-900 mt-1">{kpi.value}</h3>
               </div>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 font-medium">{kpi.title}</p>
-              <h3 className="text-2xl font-bold text-gray-900 mt-1">{kpi.value}</h3>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      {/* Quotes History Table */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Quotes History Grid */}
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <h3 className="font-semibold text-gray-900 flex items-center gap-2">
             <FileText className="w-5 h-5 text-gray-400" />
             Historial de Cotizaciones
@@ -148,67 +245,108 @@ export default function ReportsPage() {
           </div>
         </div>
         
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-gray-50/50">
-              <tr>
-                <th className="py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
-                <th className="py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wider">Cliente</th>
-                <th className="py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wider">Fecha</th>
-                <th className="py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wider">Monto</th>
-                <th className="py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">Estado</th>
-                <th className="py-3 px-6 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {quotesHistory.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-gray-400 text-sm">
-                    No hay cotizaciones registradas aún.
-                  </td>
-                </tr>
-              ) : (
-                quotesHistory.map((quote) => (
-                  <tr key={quote.id} className="hover:bg-gray-50/80 transition-colors group">
-                    <td className="py-4 px-6 text-sm font-medium text-gray-900">{quote.id}</td>
-                    <td className="py-4 px-6 text-sm text-gray-600">
-                      <div className="font-medium text-gray-900">{quote.client}</div>
-                      <div className="text-xs text-gray-400">{quote.items} ítems</div>
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-500">{quote.date}</td>
-                    <td className="py-4 px-6 text-sm font-medium text-gray-900">{quote.amount}</td>
-                    <td className="py-4 px-6 text-center">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(quote.status)}`}>
-                        {quote.status.charAt(0).toUpperCase() + quote.status.slice(1)}
+        {loading ? (
+          <div className="text-center py-12 text-gray-500">Cargando cotizaciones...</div>
+        ) : quotesHistory.length === 0 ? (
+          <div className="text-center py-12 text-gray-500 border rounded-xl bg-gray-50">
+            No hay cotizaciones registradas aún.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {quotesHistory.map((quote) => (
+              <Card key={quote.id} className="group hover:shadow-md transition-shadow border-gray-200">
+                <CardHeader className="pb-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <CardTitle className="text-lg font-bold text-gray-900">
+                        {quote.client}
+                      </CardTitle>
+                      <CardDescription className="text-xs mt-1">
+                        Folio: {quote.id}
+                      </CardDescription>
+                    </div>
+                    <Badge className={`${getStatusColor(quote.status)} border-0`}>
+                      {quote.status.charAt(0).toUpperCase() + quote.status.slice(1)}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="pb-3">
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between text-gray-500">
+                      <span className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4" /> Fecha
                       </span>
-                    </td>
-                    <td className="py-4 px-6 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button 
-                          onClick={() => handleDownloadQuote(quote.id)}
-                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Descargar PDF"
-                        >
-                          <FileDown className="w-4 h-4" />
-                        </button>
-                        <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
+                      <span className="font-medium text-gray-900">{quote.date}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-500">
+                      <span className="flex items-center gap-2">
+                        <Package className="w-4 h-4" /> Ítems
+                      </span>
+                      <span className="font-medium text-gray-900">{quote.itemsCount}</span>
+                    </div>
+                    <Separator className="my-2" />
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-gray-700">Total</span>
+                      <span className="text-lg font-bold text-gray-900">{quote.amount}</span>
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter className="pt-3 gap-2">
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button 
+                        variant="outline" 
+                        className="w-full gap-2 hover:bg-gray-50"
+                        onClick={() => setSelectedQuote(quote)}
+                      >
+                        <Receipt className="w-4 h-4" />
+                        Ver Ticket
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle className="text-center text-xl font-bold">Vista Previa de Cotización</DialogTitle>
+                        <DialogDescription className="text-center">
+                          {selectedQuote?.id}
+                        </DialogDescription>
+                      </DialogHeader>
+                      
+                      <div className="bg-gray-100 p-4 rounded-lg overflow-auto flex justify-center">
+                        <div className="bg-white shadow-lg min-w-[800px] origin-top scale-[0.85]">
+                          {ticketData && <PDFCotizacion data={ticketData} />}
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      
+                      <div className="flex gap-2 mt-4 justify-end">
+                        <Button className="bg-black text-white hover:bg-gray-800" onClick={() => handleDownloadQuote(selectedQuote?.id)}>
+                          <Download className="w-4 h-4 mr-2" />
+                          Descargar PDF
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    className="text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                    onClick={() => handleDownloadQuote(quote.id)}
+                    title="Descargar PDF"
+                  >
+                    <FileDown className="w-4 h-4" />
+                  </Button>
+                </CardFooter>
+              </Card>
+            ))}
+          </div>
+        )}
         
         {/* Pagination placeholder */}
-        <div className="p-4 border-t border-gray-200 flex items-center justify-between text-sm text-gray-500">
+        <div className="p-4 flex items-center justify-between text-sm text-gray-500">
           <span>Mostrando {quotesHistory.length} de {quotesHistory.length} resultados</span>
           <div className="flex gap-2">
-            <button disabled className="px-3 py-1 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">Anterior</button>
-            <button disabled className="px-3 py-1 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">Siguiente</button>
+            <Button variant="outline" size="sm" disabled>Anterior</Button>
+            <Button variant="outline" size="sm" disabled>Siguiente</Button>
           </div>
         </div>
       </div>
