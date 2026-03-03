@@ -32,6 +32,9 @@ interface TicketData {
   basePrice: number;
   equipmentName?: string; // Sometimes it's here
   tariffType?: string;
+  nombreCliente?: string; // Explicit client name from form
+  tiempoCargaDescarga?: string;
+  precioTolva?: string;
 }
 
 interface PDFCotizacionProps {
@@ -67,7 +70,7 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
   };
 
   // Calculations
-  const subtotal = data.basePrice || 0;
+  const subtotal = (data.basePrice || 0) + (data.precioTolva ? parseFloat(data.precioTolva) : 0);
   const tasaImpositiva = 0.16; // 16%
   const impuestoVentas = subtotal * tasaImpositiva;
   const retencion = subtotal * 0.04; // 4% retention (standard for freight in MX)
@@ -76,19 +79,23 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
   // Company Name Handling
   const companyName = typeof data.empresa === 'string' ? data.empresa : data.empresa?.name || 'Cliente General';
   
-  // Equipment Name
+  // Client Name (if different or specifically passed, otherwise fallback to companyName or "Cliente")
+  // In a real scenario, you might want to pass a separate "clientName" prop if available.
+  // For now, let's assume if companyName looks like a person's name we use it, otherwise we default to "Cliente" or reuse companyName.
+  // Since we don't have a separate client field in TicketData, we will reuse companyName but allow it to be editable separately in the UI.
+  const clientName = data.nombreCliente || companyName; 
   const equipment = data.equipmentName || data.tipoServicio || 'General';
 
   // Helper to describe items - NOW EDITABLE STRING
-  const describeItems = (items: CargoItem[]) => {
-    if (!items || items.length === 0) return 'General';
-    return items.map(i => {
-       const qty = i.cantidad || i.quantity || 1;
-       const desc = i.description ? i.description : `${qty} Bultos`;
-       const dims = (i.largo && i.ancho && i.alto) ? `(${i.largo}x${i.ancho}x${i.alto})` : '';
-       return `${desc} ${dims}`;
-    }).join(', ');
-  };
+  // Removed single string return, will map in JSX directly for better row handling if needed.
+  // But wait, the request is to add rows to the TABLE.
+  // Let's modify the table body logic.
+  
+  const hasMultipleItems = data.items && data.items.length > 0;
+  const itemsToRender = hasMultipleItems ? data.items : [{ id: 'default', description: 'General' }];
+
+  const tiempoCarga = data.tiempoCargaDescarga ? `${data.tiempoCargaDescarga} hrs libres` : '24 hrs libres';
+  const tolvaPrice = data.precioTolva ? parseFloat(data.precioTolva) : 0;
 
   return (
     <div className="w-full bg-white text-black text-xs font-sans p-8 leading-tight print:p-0 print:m-0">
@@ -163,6 +170,9 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
         <div className="w-1/2 space-y-1">
           <h3 className="font-bold text-sm mb-2 border-b border-gray-300"><Editable>CLIENTE / CLIENT</Editable></h3>
           <div className="grid grid-cols-[100px_1fr] gap-1">
+            <div className="font-bold"><Editable>Cliente:</Editable></div>
+            <div className="uppercase"><Editable>{clientName}</Editable></div>
+
             <div className="font-bold"><Editable>Presupuesto:</Editable></div>
             <div><Editable>{data.folio}</Editable></div>
             
@@ -170,7 +180,7 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
             <div className="uppercase"><Editable>{companyName}</Editable></div>
             
             <div className="font-bold"><Editable>Vendedor:</Editable></div>
-            <div><Editable>Lucio Javier Padua Tress</Editable></div>
+            <div><Editable>{data.emitente}</Editable></div>
             
             <div className="font-bold"><Editable>Moneda:</Editable></div>
             <div><Editable>{data.divisa || 'MXN'}</Editable></div>
@@ -192,15 +202,36 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td className="border border-gray-300 p-2"><Editable>{data.origen}</Editable></td>
-              <td className="border border-gray-300 p-2"><Editable>{data.destino}</Editable></td>
-              <td className="border border-gray-300 p-2">
-                <Editable>{describeItems(data.items)}</Editable>
-              </td>
-              <td className="border border-gray-300 p-2 uppercase"><Editable>{equipment}</Editable></td>
-              <td className="border border-gray-300 p-2 uppercase"><Editable>{data.tipoCarga || 'General'}</Editable></td>
-            </tr>
+            {hasMultipleItems ? (
+              data.items.map((item, index) => {
+                 const qty = item.cantidad || item.quantity || 1;
+                 const desc = item.description ? item.description : `${qty} Bultos`;
+                 const dims = (item.largo && item.ancho && item.alto) ? `(${item.largo}m x ${item.ancho}m x ${item.alto}m)` : '';
+                 const fullDesc = `${desc} ${dims}`;
+                 
+                 return (
+                    <tr key={index}>
+                      <td className="border border-gray-300 p-2"><Editable>{data.origen}</Editable></td>
+                      <td className="border border-gray-300 p-2"><Editable>{data.destino}</Editable></td>
+                      <td className="border border-gray-300 p-2">
+                        <Editable>{fullDesc}</Editable>
+                      </td>
+                      <td className="border border-gray-300 p-2 uppercase"><Editable>{equipment}</Editable></td>
+                      <td className="border border-gray-300 p-2 uppercase"><Editable>{data.tipoCarga || 'General'}</Editable></td>
+                    </tr>
+                 );
+              })
+            ) : (
+                <tr>
+                  <td className="border border-gray-300 p-2"><Editable>{data.origen}</Editable></td>
+                  <td className="border border-gray-300 p-2"><Editable>{data.destino}</Editable></td>
+                  <td className="border border-gray-300 p-2">
+                    <Editable>General</Editable>
+                  </td>
+                  <td className="border border-gray-300 p-2 uppercase"><Editable>{equipment}</Editable></td>
+                  <td className="border border-gray-300 p-2 uppercase"><Editable>{data.tipoCarga || 'General'}</Editable></td>
+                </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -226,11 +257,23 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
                 <Editable>Servicio de Flete Terrestre</Editable><br/>
                 <Editable>{data.origen} - {data.destino}</Editable>
               </td>
-              <td className="border border-gray-300 p-2"><Editable>24 hrs libres</Editable></td>
+              <td className="border border-gray-300 p-2"><Editable>{tiempoCarga}</Editable></td>
               <td className="border border-gray-300 p-2"><Editable>{formatCurrency(data.basePrice)}</Editable></td>
               <td className="border border-gray-300 p-2"><Editable>IVA 16%<br/>RET 4%</Editable></td>
               <td className="border border-gray-300 p-2"><Editable>{formatCurrency(data.basePrice)}</Editable></td>
             </tr>
+            {tolvaPrice > 0 && (
+              <tr>
+                <td className="border border-gray-300 p-2"><Editable>1</Editable></td>
+                <td className="border border-gray-300 p-2 text-left">
+                  <Editable>Servicio Tolva (Adicional)</Editable>
+                </td>
+                <td className="border border-gray-300 p-2"><Editable>{tiempoCarga}</Editable></td>
+                <td className="border border-gray-300 p-2"><Editable>{formatCurrency(tolvaPrice)}</Editable></td>
+                <td className="border border-gray-300 p-2"><Editable>IVA 16%<br/>RET 4%</Editable></td>
+                <td className="border border-gray-300 p-2"><Editable>{formatCurrency(tolvaPrice)}</Editable></td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -331,7 +374,8 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
             <div className="text-center">
               <div className="border-t border-black w-48 mx-auto mb-2"></div>
               <div className="font-bold"><Editable>CLIENTE</Editable></div>
-              <div className="text-[9px]"><Editable>FIRMA DEL CLIENTE</Editable></div>
+              <div className="text-xs uppercase mt-1"><Editable>{companyName}</Editable></div>
+              <div className="text-[9px] mt-1"><Editable>FIRMA DE CONFORMIDAD</Editable></div>
             </div>
             
             <div className="text-center">

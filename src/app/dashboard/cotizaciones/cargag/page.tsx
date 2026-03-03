@@ -25,6 +25,12 @@ interface SimpleClient {
   company?: string;
 }
 
+interface Tolva {
+  id: string;
+  nombre: string;
+  precio_base: number;
+}
+
 type TariffType = "rabon" | "sencillo" | "full";
 
 interface TariffRow {
@@ -66,6 +72,7 @@ interface CargoItem {
 
 export default function CargaGeneralPage() {
   const [empresa, setEmpresa] = useState("");
+  const [nombreCliente, setNombreCliente] = useState(""); // Nuevo estado para el nombre del cliente (contacto)
   const [diaExpedicion, setDiaExpedicion] = useState(new Date().toISOString().split("T")[0]);
   const [diaVigencia, setDiaVigencia] = useState(() => {
     const date = new Date();
@@ -84,6 +91,10 @@ export default function CargaGeneralPage() {
     { id: "1", cantidad: "1", largo: "", ancho: "", alto: "", peso: "" }
   ]);
   const [divisa, setDivisa] = useState<"USD" | "EUR" | "MXN" | "">("MXN");
+
+  // New fields for Cargo Time and Hopper Price - Moved UP to fix dependency error
+  const [tiempoCargaDescarga, setTiempoCargaDescarga] = useState("12");
+  const [precioTolva, setPrecioTolva] = useState(""); // Can be auto-filled from Supabase or manual input
 
   // --- PERSISTENCE LOGIC START ---
   // Load data from localStorage on mount
@@ -107,6 +118,8 @@ export default function CargaGeneralPage() {
         if (parsed.servicioSeleccionado) setServicioSeleccionado(parsed.servicioSeleccionado);
         if (parsed.loadType) setLoadType(parsed.loadType);
         if (parsed.companySelectionMode) setCompanySelectionMode(parsed.companySelectionMode);
+        if (parsed.tiempoCargaDescarga) setTiempoCargaDescarga(parsed.tiempoCargaDescarga);
+        if (parsed.precioTolva) setPrecioTolva(parsed.precioTolva);
       } catch (e) {
         console.error("Error loading draft:", e);
       }
@@ -124,7 +137,9 @@ export default function CargaGeneralPage() {
       origen,
       destino,
       cargoItems,
-      divisa
+      divisa,
+      tiempoCargaDescarga,
+      precioTolva
     };
     localStorage.setItem("cotizacion_cargag_draft", JSON.stringify(dataToSave));
   }, [
@@ -136,7 +151,9 @@ export default function CargaGeneralPage() {
     origen,
     destino,
     cargoItems,
-    divisa
+    divisa,
+    tiempoCargaDescarga,
+    precioTolva
   ]);
 
   const clearDraft = () => {
@@ -157,6 +174,8 @@ export default function CargaGeneralPage() {
     setServicioSeleccionado("");
     setLoadType("");
     setCompanySelectionMode("manual");
+    setTiempoCargaDescarga("12");
+    setPrecioTolva("");
     setQuoteOptions([]);
     setQuoteError(null);
     window.location.reload(); // Simple way to ensure clean slate including auth user re-fetch
@@ -195,11 +214,16 @@ export default function CargaGeneralPage() {
   const [companies, setCompanies] = useState<SimpleCompany[]>([]);
   const [clients, setClients] = useState<SimpleClient[]>([]);
   const [availableServices, setAvailableServices] = useState<GeneralCargoEquipment[]>([]);
+  const [tolvas, setTolvas] = useState<Tolva[]>([]); // Lista de tolvas
+  const [selectedTolva, setSelectedTolva] = useState<string>(""); // Tolva seleccionada
+  
   const [loadingServices, setLoadingServices] = useState(false);
   const [servicesError, setServicesError] = useState<string | null>(null);
   const [servicioSeleccionado, setServicioSeleccionado] = useState("");
   const [companySelectionMode, setCompanySelectionMode] = useState<CompanySelectionMode>("manual");
   const [loadType, setLoadType] = useState<LoadType | "">("");
+  
+  // New fields for Cargo Time and Hopper Price were moved UP
 
   const [quoteOptions, setQuoteOptions] = useState<QuoteOption[]>([]);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -314,39 +338,62 @@ export default function CargaGeneralPage() {
 
   useEffect(() => {
     const fetchCompaniesAndClients = async () => {
-      if (!supabase) return;
-      
-      try {
-        // Fetch companies
-        const { data: companiesData } = await supabase
-          .from('companies')
-          .select('id, name')
-          .order('name');
-          
-        if (companiesData) {
-          setCompanies(companiesData);
-        }
-        
-        // Fetch clients
-        const { data: clientsData } = await supabase
-          .from('clients')
-          .select('id, name, company')
-          .order('name');
-          
-        if (clientsData) {
-          setClients(clientsData.map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            company: c.company
-          })));
-        }
-      } catch (error) {
-        console.error("Error fetching companies/clients:", error);
-      }
-    };
+    if (!supabase) return;
     
-    fetchCompaniesAndClients();
-  }, []);
+    try {
+      // Fetch companies
+      const { data: companiesData } = await supabase
+        .from('companies')
+        .select('id, name')
+        .order('name');
+        
+      if (companiesData) {
+        setCompanies(companiesData);
+      }
+      
+      // Fetch clients
+      const { data: clientsData } = await supabase
+        .from('clients')
+        .select('id, name, company')
+        .order('name');
+        
+      if (clientsData) {
+        setClients(clientsData.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          company: c.company
+        })));
+      }
+
+      // Fetch Tolvas
+      const { data: tolvasData } = await supabase
+        .from('tolvas')
+        .select('id, nombre, precio_base')
+        .order('nombre');
+        
+      if (tolvasData) {
+         setTolvas(tolvasData);
+      }
+
+    } catch (error) {
+      console.error("Error fetching companies/clients/tolvas:", error);
+    }
+  };
+  
+  fetchCompaniesAndClients();
+}, []);
+
+// Watch for selectedTolva changes to update price
+useEffect(() => {
+   if (selectedTolva) {
+      const t = tolvas.find(item => item.id === selectedTolva);
+      if (t) {
+         // If price is > 0, set it. If 0, maybe clear it to force manual entry or set 0.
+         // Let's set it to whatever is in DB.
+         setPrecioTolva(t.precio_base ? t.precio_base.toString() : "");
+      }
+   }
+}, [selectedTolva, tolvas]);
 
   // Auto-generate folio when origin changes
   useEffect(() => {
@@ -599,11 +646,14 @@ export default function CargaGeneralPage() {
         fechaExpedicion: diaExpedicion,
         fechaVigencia: diaVigencia,
         folio: numeroCotizacion,
-        origen: searchedOrigen,
-        destino: searchedDestino,
+        origen: searchedOrigen || origen, // Ensure we have a value
+        destino: searchedDestino || destino, // Ensure we have a value
         items: cargoItems,
         tipoCarga: loadType || selectedOption.tariffType,
-        tipoServicio: selectedOption.equipmentName
+        tipoServicio: selectedOption.equipmentName,
+        nombreCliente: nombreCliente || empresa, // Pass client name if available
+        tiempoCargaDescarga: tiempoCargaDescarga, // New field
+        precioTolva: precioTolva // New field
       });
       // setShowTicket(true); // Removed auto-switch
       
@@ -688,74 +738,56 @@ export default function CargaGeneralPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
+                  {/* Empresa Selector */}
                   <div className="space-y-2">
-                    <Label htmlFor="empresa">Empresa / Cliente</Label>
-                    <div className="space-y-2">
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <Select
-                          value={companySelectionMode}
-                          onValueChange={(value) =>
-                            setCompanySelectionMode(value as CompanySelectionMode)
-                          }
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Selecciona origen" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="manual">Escribir manualmente</SelectItem>
-                            <SelectItem value="company">Empresa existente</SelectItem>
-                            <SelectItem value="client">Cliente existente</SelectItem>
-                          </SelectContent>
-                        </Select>
-
-                        {companySelectionMode === "company" && (
-                          <Select
-                            onValueChange={(value) => setEmpresa(value)}
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Selecciona empresa" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {companies.map((company) => (
-                                <SelectItem key={company.id} value={company.name}>
-                                  {company.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-
-                        {companySelectionMode === "client" && (
-                          <Select
-                            onValueChange={(value) => setEmpresa(value)}
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Selecciona cliente" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {clients.map((client) => (
-                                <SelectItem
-                                  key={client.id}
-                                  value={client.company || client.name}
-                                >
-                                  {client.name}
-                                  {client.company ? ` - ${client.company}` : ""}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-
+                    <Label htmlFor="empresa">Empresa</Label>
+                    <div className="relative">
                       <Input
                         id="empresa"
                         value={empresa}
                         onChange={(event) => setEmpresa(event.target.value)}
-                        placeholder="Nombre de la empresa o cliente"
+                        placeholder="Razón Social / Nombre de la Empresa"
                         required
+                        list="companies-list"
                       />
+                      <datalist id="companies-list">
+                        {companies.map((company) => (
+                          <option key={company.id} value={company.name} />
+                        ))}
+                      </datalist>
                     </div>
                   </div>
+
+                  {/* Nombre Cliente Input */}
+                  <div className="space-y-2">
+                    <Label htmlFor="nombreCliente">Nombre del Cliente (Contacto)</Label>
+                    <div className="relative">
+                      <Input
+                        id="nombreCliente"
+                        value={nombreCliente}
+                        onChange={(event) => {
+                            const val = event.target.value;
+                            setNombreCliente(val);
+                            
+                            // Optional: Auto-fill company if client is selected from list
+                            const foundClient = clients.find(c => c.name === val);
+                            if (foundClient && foundClient.company && !empresa) {
+                                setEmpresa(foundClient.company);
+                            }
+                        }}
+                        placeholder="Persona de contacto"
+                        list="clients-list"
+                      />
+                      <datalist id="clients-list">
+                        {clients.map((client) => (
+                           <option key={client.id} value={client.name}>
+                             {client.company ? `${client.name} - ${client.company}` : client.name}
+                           </option>
+                        ))}
+                      </datalist>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="emitente">Emitente</Label>
                     <Input
@@ -872,6 +904,60 @@ export default function CargaGeneralPage() {
                         {allowedLoadTypes.includes("rabon") && <SelectItem value="rabon">Rabon</SelectItem>}
                       </SelectContent>
                     </Select>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 pt-2 border-t border-gray-100">
+                  {/* Tiempo de Carga/Descarga */}
+                  <div className="space-y-2">
+                    <Label htmlFor="tiempoCarga">Tiempo Carga/Descarga</Label>
+                    <Select
+                      value={tiempoCargaDescarga}
+                      onValueChange={(value) => setTiempoCargaDescarga(value)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecciona tiempo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="8">8 Horas</SelectItem>
+                        <SelectItem value="12">12 Horas (Estándar)</SelectItem>
+                        <SelectItem value="24">24 Horas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Precio Tolva */}
+                  <div className="space-y-2">
+                    <Label htmlFor="precioTolva">Precio Tolva (por ton/viaje)</Label>
+                    <div className="flex gap-2">
+                       {/* Selector de Tolvas */}
+                       <Select
+                          value={selectedTolva}
+                          onValueChange={(value) => setSelectedTolva(value)}
+                       >
+                         <SelectTrigger className="w-full">
+                           <SelectValue placeholder="Tipo de Tolva" />
+                         </SelectTrigger>
+                         <SelectContent>
+                           <SelectItem value="none">Ninguna / Manual</SelectItem>
+                           {tolvas.map((t) => (
+                             <SelectItem key={t.id} value={t.id}>
+                               {t.nombre}
+                             </SelectItem>
+                           ))}
+                         </SelectContent>
+                       </Select>
+
+                       <Input
+                          id="precioTolva"
+                          type="number"
+                          placeholder="Precio"
+                          value={precioTolva}
+                          onChange={(e) => setPrecioTolva(e.target.value)}
+                          className="w-24"
+                       />
+                    </div>
+                    <p className="text-[10px] text-gray-500">Selecciona un tipo de tolva para autocompletar precio o escribe manual.</p>
                   </div>
                 </div>
               </CardContent>
