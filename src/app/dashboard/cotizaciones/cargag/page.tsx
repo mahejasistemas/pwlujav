@@ -397,55 +397,69 @@ useEffect(() => {
 
   // Auto-generate folio when origin changes
   useEffect(() => {
-    if (!origen) return;
-
-    const generateFolio = () => {
-      // 1. Extract 3 letters from State (or Origin)
-      let prefix = "GEN"; // Default
-      const parts = origen.split(",");
-      
-      if (parts.length > 1) {
-        // Assume format "City, State"
-        // Get the last part as state
-        const state = parts[parts.length - 1].trim();
-        // Remove common words like "Estado de" if present, though unlikely in simple input
-        // Just take first 3 chars
-        prefix = state.substring(0, 3).toUpperCase();
-      } else {
-        // Use first 3 letters of origin
-        prefix = origen.substring(0, 3).toUpperCase();
-      }
-      
-      // Normalize prefix to be alphanumeric only
-      prefix = prefix.replace(/[^A-Z0-9]/g, "");
-
-      // Ensure we have 3 letters if possible, or pad
-      if (prefix.length < 3) {
-        prefix = prefix.padEnd(3, "X");
-      }
-      
-      // Limit to 3 chars
-      prefix = prefix.substring(0, 3);
-
-      // 2. Year YY (Last 2 digits)
-      const year = new Date().getFullYear().toString().slice(-2);
-
-      // 3. Sequence (001 for now)
-      // Since we don't have a way to check the last folio in the frontend easily without an API call,
-      // and the user said "starts with 001", we default to 001.
-      // In a real implementation, this should probably come from the backend or an async check.
-      const sequence = "001";
-
-      return `${prefix}${year}${sequence}`;
+    // If we already have a folio set (e.g. from draft or previous generation), we might want to keep it
+    // BUT the requirement says: "no cambies hasta que la cotizacion se guarde".
+    // So here we should just generate a PREVIEW folio or keep it empty/static until save?
+    // Actually, user says: "el numero cambia dependiendo de las cotizaciones que se hagan... no cambies hasta que la cotizacion se guarde".
+    // This implies we should fetch the *next available* folio number based on DB count/last entry.
+    
+    const fetchNextFolio = async () => {
+        if (!supabase || !origen) return;
+        
+        // 1. Determine Prefix based on Origin
+        let prefix = "GEN"; 
+        const parts = origen.split(",");
+        if (parts.length > 1) {
+            const state = parts[parts.length - 1].trim();
+            prefix = state.substring(0, 3).toUpperCase();
+        } else {
+            prefix = origen.substring(0, 3).toUpperCase();
+        }
+        prefix = prefix.replace(/[^A-Z0-9]/g, "").padEnd(3, "X").substring(0, 3);
+        
+        // 2. Year YY
+        const year = new Date().getFullYear().toString().slice(-2);
+        
+        // 3. Find last folio with this prefix/year pattern to increment
+        // Pattern: PREFIX + YEAR + SEQUENCE (e.g. VER24001)
+        const pattern = `${prefix}${year}%`;
+        
+        try {
+            const { data, error } = await supabase
+                .from('cotizaciones')
+                .select('folio')
+                .ilike('folio', pattern)
+                .order('created_at', { ascending: false })
+                .limit(1);
+                
+            let nextSequence = 1;
+            
+            if (data && data.length > 0 && data[0].folio) {
+                const lastFolio = data[0].folio;
+                // Extract sequence (last 3 digits)
+                const lastSeqStr = lastFolio.slice(-3);
+                const lastSeqNum = parseInt(lastSeqStr, 10);
+                if (!isNaN(lastSeqNum)) {
+                    nextSequence = lastSeqNum + 1;
+                }
+            }
+            
+            const sequenceStr = nextSequence.toString().padStart(3, "0");
+            const nextFolio = `${prefix}${year}${sequenceStr}`;
+            
+            setNumeroCotizacion(nextFolio);
+            
+        } catch (err) {
+            console.error("Error generating folio:", err);
+            // Fallback
+            setNumeroCotizacion(`${prefix}${year}001`);
+        }
     };
 
-    // Only update if the user hasn't manually entered a completely different format?
-    // User said "auto-generates but can be modified".
-    // We will update it whenever origin changes to a valid string.
-    const newFolio = generateFolio();
-    setNumeroCotizacion(newFolio);
+    fetchNextFolio();
     
-  }, [origen]);
+  }, [origen]); // Re-run when origin changes to update prefix match
+
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

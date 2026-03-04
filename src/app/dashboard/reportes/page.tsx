@@ -46,7 +46,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
+import { supabase } from "@/lib/supabaseClient";
 import { PDFCotizacion } from "../cotizaciones/cargag/pdfcotizacion";
 
 export default function ReportsPage() {
@@ -56,6 +57,23 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedQuote, setSelectedQuote] = useState<any>(null);
   const [ticketData, setTicketData] = useState<any>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      if (!supabase) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserEmail(user.email || null);
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+        if (profile?.role === 'admin' || profile?.role === 'sistemas') {
+            setIsAdmin(true);
+        }
+      }
+    };
+    checkUser();
+  }, []);
 
   useEffect(() => {
     if (selectedQuote) {
@@ -95,29 +113,85 @@ export default function ReportsPage() {
       }
 
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('cotizaciones')
           .select('*')
           .order('created_at', { ascending: false });
+
+        // Apply user filter if not admin
+        // We need to wait for userEmail to be set, or fetch it here if not available yet?
+        // Since userEmail is set in another effect, it might race. 
+        // Better to fetch user here or depend on userEmail state.
+        // Let's modify dependency array to include userEmail and only run if we determined user status.
+        // But initial load might be slow.
+        
+        // Let's check auth directly here to be sure for this request context
+        const { data: { user } } = await supabase.auth.getUser();
+        let isUserAdmin = false;
+        if (user) {
+             const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+             if (profile?.role === 'admin' || profile?.role === 'sistemas') {
+                 isUserAdmin = true;
+             }
+             
+             if (!isUserAdmin) {
+                 query = query.eq('emitente', user.email);
+             }
+        } else {
+            // No user, no data
+            setLoading(false);
+            return;
+        }
+
+        // Apply time range filter
+        const now = new Date();
+        let startDate: Date | null = null;
+
+        switch (timeRange) {
+          case "last_7_days":
+            startDate = new Date(now);
+            startDate.setDate(now.getDate() - 7);
+            break;
+          case "last_30_days":
+            startDate = new Date(now);
+            startDate.setDate(now.getDate() - 30);
+            break;
+          case "last_90_days":
+            startDate = new Date(now);
+            startDate.setDate(now.getDate() - 90);
+            break;
+          case "this_year":
+            startDate = new Date(now.getFullYear(), 0, 1);
+            break;
+        }
+
+        if (startDate) {
+          query = query.gte('created_at', startDate.toISOString());
+        }
+
+        const { data, error } = await query;
 
         if (error) {
           console.error("Error fetching quotes:", error);
           toast.error("Error al cargar historial de cotizaciones");
         } else if (data) {
           // Transform data to match UI expected format
-          const formattedQuotes = data.map(q => ({
-            id: q.folio || q.id.substring(0, 8),
-            client: q.cliente_nombre || q.empresa_nombre || "Cliente General",
-            date: q.fecha_expedicion ? new Date(q.fecha_expedicion).toLocaleDateString('es-MX', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            }) : 'Fecha no disponible',
-            amount: new Intl.NumberFormat('es-MX', { style: 'currency', currency: q.divisa || 'MXN' }).format(q.monto_total || 0),
-            status: q.estado || 'pendiente',
-            itemsCount: Array.isArray(q.items) ? q.items.length : 0,
-            originalData: q // Keep full data if needed for download/details
-          }));
+          const formattedQuotes = data.map((q, index) => {
+             const safeId = q.folio || (q.id ? String(q.id).substring(0, 8) : `quote-${index}`);
+             return {
+              id: safeId,
+              client: q.cliente_nombre || q.empresa_nombre || "Cliente General",
+              date: q.fecha_expedicion ? new Date(q.fecha_expedicion).toLocaleDateString('es-MX', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              }) : 'Fecha no disponible',
+              amount: new Intl.NumberFormat('es-MX', { style: 'currency', currency: q.divisa || 'MXN' }).format(q.monto_total || 0),
+              status: q.estado || 'pendiente',
+              itemsCount: Array.isArray(q.items) ? q.items.length : 0,
+              originalData: q // Keep full data if needed for download/details
+            };
+          });
           setQuotesHistory(formattedQuotes);
           
           // Calculate unique clients count roughly

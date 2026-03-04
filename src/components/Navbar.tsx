@@ -38,6 +38,7 @@ export default function Navbar() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     setIsMounted(true);
@@ -76,27 +77,50 @@ export default function Navbar() {
             // Manejo silencioso: si falla (ej. permisos RLS), asumimos lista vacía
             setWorkspaces([]);
             setCurrentWorkspace(null);
-            return;
-          }
-
-          const wsData = data as Workspace[];
-
-          if (wsData && wsData.length > 0) {
-            setWorkspaces(wsData);
-            // Set default workspace
-            setCurrentWorkspace(wsData[0]);
           } else {
-            setWorkspaces([]);
-            setCurrentWorkspace(null);
+            const wsData = data as Workspace[];
+
+            if (wsData && wsData.length > 0) {
+              setWorkspaces(wsData);
+              // Set default workspace
+              setCurrentWorkspace(wsData[0]);
+            } else {
+              setWorkspaces([]);
+              setCurrentWorkspace(null);
+            }
           }
         } catch (error) {
           console.error("Error in fetchWorkspaces:", error);
+        }
+
+        // 4. Fetch Pending Quotes Count
+        try {
+          const { count, error } = await supabase
+            .from('cotizaciones')
+            .select('*', { count: 'exact', head: true })
+            .eq('estado', 'pendiente');
+          
+          if (!error && count !== null) {
+            setPendingCount(count);
+          }
+        } catch (error) {
+          console.error("Error fetching pending quotes count:", error);
         }
       }
     };
 
     initNavbar();
   }, []);
+
+  const handleNotificationClick = () => {
+    if (pendingCount > 0) {
+      // Simple alert as requested, or use a toast if available globally
+      // Since toast is not imported here, let's just use alert for now or try to import toast if possible
+      // But the file doesn't import toast. Let's add import toast from sonner if I can.
+      // Or just a simple alert as requested "diga nueva notificacion"
+      alert("Nueva notificación: Tienes cotizaciones pendientes por revisar");
+    }
+  };
 
   if (!isMounted) {
     return null;
@@ -146,8 +170,14 @@ export default function Navbar() {
                 <MessageSquare className="h-3.5 w-3.5" />
                 Chat
              </button>
-           <button className="text-gray-400 hover:text-amber-500">
+           <button 
+             className="text-gray-400 hover:text-amber-500 relative"
+             onClick={handleNotificationClick}
+           >
               <AlertTriangle className="h-4 w-4" />
+              {pendingCount > 0 && (
+                <span className="absolute -top-1 -right-1 h-2 w-2 bg-red-500 rounded-full animate-pulse"></span>
+              )}
            </button>
         </div>
       </div>

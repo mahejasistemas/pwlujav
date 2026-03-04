@@ -43,7 +43,10 @@ export default function Login() {
           throw error;
         }
 
-        const user = data.user;
+        // Check if data.user is actually present before accessing it
+        if (!data?.user) {
+             throw new Error("No se pudo obtener el usuario");
+        }
 
         // Firebase user creation logic removed
 
@@ -71,7 +74,9 @@ export default function Login() {
           throw error;
         }
 
-        const user = data.user;
+        if (!data?.user) {
+            throw new Error("No se pudo registrar el usuario");
+        }
 
         // Firebase user creation logic removed
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { 
   Home, 
   Users, 
@@ -23,6 +24,29 @@ export default function Sidebar() {
   const router = useRouter();
   // TODO: Implement actual admin check logic here
   const isAdmin = true; 
+  const [pendingCount, setPendingCount] = useState(0);
+
+  useEffect(() => {
+    const fetchPendingCount = async () => {
+      if (!supabase) return;
+      try {
+        const { count, error } = await supabase
+          .from('cotizaciones')
+          .select('*', { count: 'exact', head: true })
+          .eq('estado', 'pendiente');
+        
+        if (!error && count !== null) {
+          setPendingCount(count);
+        }
+      } catch (error) {
+        console.error("Error fetching pending count:", error);
+      }
+    };
+
+    fetchPendingCount();
+    
+    // Optional: Realtime subscription could go here
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -45,7 +69,7 @@ export default function Sidebar() {
       <div className="w-full bg-red-700 flex flex-col items-center py-4 gap-2 shrink-0 h-full">
         {/* Main Nav Icons */}
         <div className="flex flex-col gap-6 w-full items-center">
-          <NavItemRail icon={Home} label="Inicio" active={pathname === "/dashboard"} onClick={() => router.push("/dashboard")} />
+          <NavItemRail icon={Home} label="Inicio" active={pathname === "/dashboard"} onClick={() => router.push("/dashboard")} badge={pendingCount > 0 ? pendingCount : undefined} />
           <NavItemRail icon={Calculator} label="Cotizar" active={pathname.includes("cotizaciones")} onClick={() => router.push("/dashboard/cotizaciones")} />
           <NavItemRail icon={Users} label="Clientes" active={pathname.includes("clientes")} onClick={() => router.push("/dashboard/clientes")} />
           <NavItemRail icon={FileText} label="Reportes" active={pathname.includes("reportes")} onClick={() => router.push("/dashboard/reportes")} />
@@ -74,18 +98,23 @@ export default function Sidebar() {
   );
 }
 
-function NavItemRail({ icon: Icon, label, active, className, onClick }: { icon: LucideIcon, label: string, active?: boolean, className?: string, onClick?: () => void }) {
+function NavItemRail({ icon: Icon, label, active, className, onClick, badge }: { icon: LucideIcon, label: string, active?: boolean, className?: string, onClick?: () => void, badge?: number }) {
   return (
     <div 
-      className="flex flex-col items-center gap-2 cursor-pointer group"
+      className="flex flex-col items-center gap-2 cursor-pointer group relative"
       onClick={onClick}
     >
       <div className={cn(
-        "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+        "w-10 h-10 rounded-xl flex items-center justify-center transition-all relative",
         active ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white",
         className
       )}>
         <Icon className="h-6 w-6" />
+        {badge && (
+          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-sm ring-1 ring-white">
+            {badge > 9 ? '9+' : badge}
+          </span>
+        )}
       </div>
       <span className={cn(
         "text-[10px] font-medium",
