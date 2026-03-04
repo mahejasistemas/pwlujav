@@ -26,6 +26,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { PDFCotizacion } from "../dashboard/cotizaciones/cargag/pdfcotizacion";
 
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
 export default function InicioPage() {
   const [pendingQuotes, setPendingQuotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +36,14 @@ export default function InicioPage() {
   const [selectedQuote, setSelectedQuote] = useState<any>(null);
   const [ticketData, setTicketData] = useState<any>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  
+  // Edit State
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+      monto_total: "",
+      precio_tolva: "",
+      fecha_vigencia: ""
+  });
 
   useEffect(() => {
     const checkUserAndFetch = async () => {
@@ -148,8 +159,64 @@ export default function InicioPage() {
           precioTolva: data.precio_tolva || "0"
         };
         setTicketData(mappedData);
+        
+        // Initialize Edit Form
+        setEditForm({
+            monto_total: data.monto_total?.toString() || "0",
+            precio_tolva: data.detalles_adicionales?.precioTolva || "0",
+            fecha_vigencia: data.fecha_vigencia || ""
+        });
+        setIsEditing(false); // Reset edit mode on new selection
       }
     }, [selectedQuote]);
+
+  const handleUpdateQuote = async () => {
+      if (!supabase || !selectedQuote) return;
+      
+      try {
+          toast.loading("Guardando cambios...");
+          
+          // Prepare update data
+          // We need to update monto_total, fecha_vigencia, and detalles_adicionales.precioTolva
+          const updatedDetails = {
+              ...selectedQuote.detalles_adicionales,
+              precioTolva: editForm.precio_tolva
+          };
+          
+          const { error } = await supabase
+              .from('cotizaciones')
+              .update({
+                  monto_total: parseFloat(editForm.monto_total),
+                  fecha_vigencia: editForm.fecha_vigencia,
+                  detalles_adicionales: updatedDetails
+              })
+              .eq('id', selectedQuote.id);
+              
+          if (error) throw error;
+          
+          toast.dismiss();
+          toast.success("Cambios guardados correctamente");
+          setIsEditing(false);
+          
+          // Refresh list and selected quote view (partially)
+          // Ideally we re-fetch the single quote or just update local state
+          // Let's re-fetch list for simplicity and update local selectedQuote manually
+          fetchPendingQuotes(userEmail, isAdmin);
+          
+          // Update local selectedQuote to reflect changes immediately in UI
+          setSelectedQuote({
+              ...selectedQuote,
+              monto_total: parseFloat(editForm.monto_total),
+              fecha_vigencia: editForm.fecha_vigencia,
+              detalles_adicionales: updatedDetails
+          });
+          
+      } catch (error) {
+          toast.dismiss();
+          toast.error("Error al actualizar la cotización");
+          console.error(error);
+      }
+  };
 
   const handleAcceptQuote = async (id: string) => {
     if (!supabase) return;
@@ -195,7 +262,9 @@ export default function InicioPage() {
     };
     
   const handleDownloadQuote = (id: string) => {
-      toast.success(`Descargando cotización ${id}...`);
+      // Trigger print which will use the print-specific styles to hide everything else
+      // and show only the quote content
+      window.print();
   };
 
   return (
@@ -302,24 +371,88 @@ export default function InicioPage() {
                         </DialogTrigger>
                         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                           <DialogHeader>
-                            <DialogTitle className="text-center text-xl font-bold">Vista Previa de Cotización</DialogTitle>
+                            <DialogTitle className="text-center text-xl font-bold">
+                                {isEditing ? "Editar Cotización" : "Vista Previa de Cotización"}
+                            </DialogTitle>
                             <DialogDescription className="text-center">
                               {selectedQuote?.folio || selectedQuote?.id}
                             </DialogDescription>
                           </DialogHeader>
                           
-                          <div className="bg-gray-100 p-4 rounded-lg overflow-auto flex justify-center">
-                            <div className="bg-white shadow-lg min-w-[800px] origin-top scale-[0.85]">
-                              {ticketData && <PDFCotizacion data={ticketData} />}
-                            </div>
-                          </div>
+                          {isEditing ? (
+                              <div className="p-6 bg-white border border-gray-200 rounded-lg space-y-4">
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                      <div className="space-y-2">
+                                          <Label htmlFor="edit-monto">Monto Total</Label>
+                                          <Input 
+                                              id="edit-monto" 
+                                              type="number" 
+                                              value={editForm.monto_total} 
+                                              onChange={(e) => setEditForm({...editForm, monto_total: e.target.value})}
+                                          />
+                                      </div>
+                                      <div className="space-y-2">
+                                          <Label htmlFor="edit-tolva">Precio Tolva</Label>
+                                          <Input 
+                                              id="edit-tolva" 
+                                              type="number" 
+                                              value={editForm.precio_tolva} 
+                                              onChange={(e) => setEditForm({...editForm, precio_tolva: e.target.value})}
+                                          />
+                                      </div>
+                                      <div className="space-y-2">
+                                          <Label htmlFor="edit-fecha">Fecha Vigencia</Label>
+                                          <Input 
+                                              id="edit-fecha" 
+                                              type="date" 
+                                              value={editForm.fecha_vigencia} 
+                                              onChange={(e) => setEditForm({...editForm, fecha_vigencia: e.target.value})}
+                                          />
+                                      </div>
+                                  </div>
+                                  <div className="flex justify-end gap-2 pt-4">
+                                      <Button variant="outline" onClick={() => setIsEditing(false)}>Cancelar</Button>
+                                      <Button onClick={handleUpdateQuote} className="bg-blue-600 hover:bg-blue-700 text-white">Guardar Cambios</Button>
+                                  </div>
+                              </div>
+                          ) : (
+                              <div className="bg-gray-100 p-4 rounded-lg overflow-auto flex justify-center relative">
+                                {isAdmin && selectedQuote?.estado === 'pendiente' && (
+                                    <Button 
+                                        size="sm" 
+                                        variant="secondary" 
+                                        className="absolute top-2 right-2 z-10 shadow-sm bg-white hover:bg-gray-50 text-gray-800"
+                                        onClick={() => setIsEditing(true)}
+                                    >
+                                        Editar
+                                    </Button>
+                                )}
+                                <div className="bg-white shadow-lg min-w-[800px] origin-top scale-[0.85]">
+                                  {ticketData && <PDFCotizacion data={ticketData} />}
+                                </div>
+                              </div>
+                          )}
                           
-                          <div className="flex gap-2 mt-4 justify-end">
-                            <Button className="bg-black text-white hover:bg-gray-800" onClick={() => handleDownloadQuote(selectedQuote?.id)}>
-                              <Download className="w-4 h-4 mr-2" />
-                              Descargar PDF
-                            </Button>
+                          {!isEditing && (
+                              <div className="flex gap-2 mt-4 justify-end">
+                            {selectedQuote?.estado === 'aprobada' ? (
+                                <Button className="bg-black text-white hover:bg-gray-800" onClick={() => handleDownloadQuote(selectedQuote?.id)}>
+                                  <Download className="w-4 h-4 mr-2" />
+                                  Descargar PDF
+                                </Button>
+                            ) : (
+                                <div className="group relative">
+                                    <Button disabled className="bg-gray-300 text-gray-500 cursor-not-allowed">
+                                      <Download className="w-4 h-4 mr-2" />
+                                      Descargar PDF
+                                    </Button>
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                        Solo disponible para cotizaciones aprobadas
+                                    </div>
+                                </div>
+                            )}
                           </div>
+                          )}
                         </DialogContent>
                       </Dialog>
                   </div>

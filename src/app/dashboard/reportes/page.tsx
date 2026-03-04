@@ -177,9 +177,14 @@ export default function ReportsPage() {
         } else if (data) {
           // Transform data to match UI expected format
           const formattedQuotes = data.map((q, index) => {
-             const safeId = q.folio || (q.id ? String(q.id).substring(0, 8) : `quote-${index}`);
+             // Ensure unique ID for key: prefer id (UUID), then folio, then fallback to index combo
+             // Adding prefix to avoid any numeric collision
+             const uniqueKey = q.id || `quote-${q.folio}-${index}`; 
+             const displayId = q.folio || (q.id ? String(q.id).substring(0, 8) : `quote-${index}`);
+             
              return {
-              id: safeId,
+              id: displayId, // Display ID
+              uniqueId: uniqueKey, // Internal Unique Key for React
               client: q.cliente_nombre || q.empresa_nombre || "Cliente General",
               date: q.fecha_expedicion ? new Date(q.fecha_expedicion).toLocaleDateString('es-MX', {
                 year: 'numeric',
@@ -209,8 +214,8 @@ export default function ReportsPage() {
   }, [timeRange]); // Add timeRange logic filtering later if needed
 
   const handleDownloadQuote = (id: string) => {
-    toast.success(`Descargando cotización ${id}...`);
-    // Here logic to generate/download PDF would go
+    // Uses the print styles defined in PDFCotizacion component
+    window.print();
   };
 
   const getStatusColor = (status: string) => {
@@ -328,7 +333,7 @@ export default function ReportsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {quotesHistory.map((quote) => (
-              <Card key={quote.id} className="group hover:shadow-md transition-shadow border-gray-200">
+              <Card key={quote.uniqueId} className="group hover:shadow-md transition-shadow border-gray-200">
                 <CardHeader className="pb-3">
                   <div className="flex justify-between items-start">
                     <div>
@@ -392,23 +397,49 @@ export default function ReportsPage() {
                       </div>
                       
                       <div className="flex gap-2 mt-4 justify-end">
-                        <Button className="bg-black text-white hover:bg-gray-800" onClick={() => handleDownloadQuote(selectedQuote?.id)}>
-                          <Download className="w-4 h-4 mr-2" />
-                          Descargar PDF
-                        </Button>
+                        {selectedQuote?.status === 'aprobada' ? (
+                            <Button className="bg-black text-white hover:bg-gray-800" onClick={() => handleDownloadQuote(selectedQuote?.id)}>
+                              <Download className="w-4 h-4 mr-2" />
+                              Descargar PDF
+                            </Button>
+                        ) : (
+                            <div className="group relative">
+                                <Button disabled className="bg-gray-300 text-gray-500 cursor-not-allowed">
+                                  <Download className="w-4 h-4 mr-2" />
+                                  Descargar PDF
+                                </Button>
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                    Solo disponible para cotizaciones aprobadas
+                                </div>
+                            </div>
+                        )}
                       </div>
                     </DialogContent>
                   </Dialog>
                   
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    className="text-gray-400 hover:text-blue-600 hover:bg-blue-50"
-                    onClick={() => handleDownloadQuote(quote.id)}
-                    title="Descargar PDF"
-                  >
-                    <FileDown className="w-4 h-4" />
-                  </Button>
+                  {quote.status === 'aprobada' ? (
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        className="text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                        onClick={() => handleDownloadQuote(quote.id)}
+                        title="Descargar PDF"
+                      >
+                        <FileDown className="w-4 h-4" />
+                      </Button>
+                  ) : (
+                      <div className="group relative">
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            disabled
+                            className="text-gray-300 cursor-not-allowed"
+                            title="Descargar PDF (Solo aprobadas)"
+                          >
+                            <FileDown className="w-4 h-4" />
+                          </Button>
+                      </div>
+                  )}
                 </CardFooter>
               </Card>
             ))}

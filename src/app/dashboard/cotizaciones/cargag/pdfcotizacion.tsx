@@ -98,7 +98,7 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
   const tolvaPrice = data.precioTolva ? parseFloat(data.precioTolva) : 0;
 
   return (
-    <div className="w-full bg-white text-black text-xs font-sans p-8 leading-tight print:p-0 print:m-0">
+    <div className="w-full bg-white text-black text-xs font-sans p-8 leading-tight print:p-0 print:m-0 printable-content">
       <style jsx global>{`
         @media print {
           @page {
@@ -106,9 +106,24 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
             size: auto;
           }
           body {
+            visibility: hidden;
+            background-color: white !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
+          .printable-content {
+            visibility: visible;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .printable-content * {
+            visibility: visible;
+          }
+          
           /* Force background colors */
           .bg-red-600 {
             background-color: #dc2626 !important;
@@ -121,6 +136,11 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
           .bg-red-50 {
             background-color: #fef2f2 !important;
             color: #7f1d1d !important;
+          }
+          /* Hide tooltips and dialog overlays if they interfere */
+          [role="dialog"] {
+             position: static !important;
+             background: white !important;
           }
         }
       `}</style>

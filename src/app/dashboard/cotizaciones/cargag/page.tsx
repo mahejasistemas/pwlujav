@@ -420,15 +420,18 @@ useEffect(() => {
         // 2. Year YY
         const year = new Date().getFullYear().toString().slice(-2);
         
-        // 3. Find last folio with this prefix/year pattern to increment
-        // Pattern: PREFIX + YEAR + SEQUENCE (e.g. VER24001)
-        const pattern = `${prefix}${year}%`;
+        // 3. Find last folio GLOBALLY for this year to increment sequence
+        // We want the sequence to be shared across all sections/prefixes.
+        // So we look for any folio ending in the current year pattern regardless of prefix.
+        // Pattern: ___ + YEAR + SEQUENCE (e.g. ???24???)
+        // Using underscore wildcard for single char match in SQL LIKE
+        const pattern = `___${year}%`;
         
         try {
             const { data, error } = await supabase
                 .from('cotizaciones')
                 .select('folio')
-                .ilike('folio', pattern)
+                .like('folio', pattern) // Use like/ilike with underscores
                 .order('created_at', { ascending: false })
                 .limit(1);
                 
@@ -437,6 +440,7 @@ useEffect(() => {
             if (data && data.length > 0 && data[0].folio) {
                 const lastFolio = data[0].folio;
                 // Extract sequence (last 3 digits)
+                // Assuming format AAAYYNNN
                 const lastSeqStr = lastFolio.slice(-3);
                 const lastSeqNum = parseInt(lastSeqStr, 10);
                 if (!isNaN(lastSeqNum)) {
