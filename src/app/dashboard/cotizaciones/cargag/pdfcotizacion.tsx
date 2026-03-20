@@ -35,6 +35,8 @@ interface TicketData {
   nombreCliente?: string; // Explicit client name from form
   tiempoCargaDescarga?: string;
   precioTolva?: string;
+  cargoExtraNombre?: string;
+  precioCargoExtra?: string;
 }
 
 interface PDFCotizacionProps {
@@ -70,7 +72,10 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
   };
 
   // Calculations
-  const subtotal = (data.basePrice || 0) + (data.precioTolva ? parseFloat(data.precioTolva) : 0);
+  const subtotal =
+    (data.basePrice || 0) +
+    (data.precioTolva ? parseFloat(data.precioTolva) : 0) +
+    (data.precioCargoExtra ? parseFloat(data.precioCargoExtra) : 0);
   const tasaImpositiva = 0.16; // 16%
   const impuestoVentas = subtotal * tasaImpositiva;
   const retencion = subtotal * 0.04; // 4% retention (standard for freight in MX)
@@ -96,6 +101,7 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
 
   const tiempoCarga = data.tiempoCargaDescarga ? `${data.tiempoCargaDescarga} hrs libres` : '24 hrs libres';
   const tolvaPrice = data.precioTolva ? parseFloat(data.precioTolva) : 0;
+  const cargoExtraPrice = data.precioCargoExtra ? parseFloat(data.precioCargoExtra) : 0;
 
   return (
     <div className="w-full bg-white text-black text-xs font-sans p-8 leading-tight print:p-0 print:m-0 printable-content">
@@ -292,6 +298,20 @@ export const PDFCotizacion: React.FC<PDFCotizacionProps> = ({ data }) => {
                 <td className="border border-gray-300 p-2"><Editable>{formatCurrency(tolvaPrice)}</Editable></td>
                 <td className="border border-gray-300 p-2"><Editable>IVA 16%<br/>RET 4%</Editable></td>
                 <td className="border border-gray-300 p-2"><Editable>{formatCurrency(tolvaPrice)}</Editable></td>
+              </tr>
+            )}
+            {cargoExtraPrice > 0 && (
+              <tr>
+                <td className="border border-gray-300 p-2"><Editable>1</Editable></td>
+                <td className="border border-gray-300 p-2 text-left">
+                  <Editable>
+                    Cargos Extras (Adicional){data.cargoExtraNombre ? ` - ${data.cargoExtraNombre}` : ""}
+                  </Editable>
+                </td>
+                <td className="border border-gray-300 p-2"><Editable>{tiempoCarga}</Editable></td>
+                <td className="border border-gray-300 p-2"><Editable>{formatCurrency(cargoExtraPrice)}</Editable></td>
+                <td className="border border-gray-300 p-2"><Editable>IVA 16%<br/>RET 4%</Editable></td>
+                <td className="border border-gray-300 p-2"><Editable>{formatCurrency(cargoExtraPrice)}</Editable></td>
               </tr>
             )}
           </tbody>

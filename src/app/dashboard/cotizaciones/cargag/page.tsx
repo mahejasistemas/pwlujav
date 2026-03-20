@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,12 @@ interface SimpleClient {
 }
 
 interface Tolva {
+  id: string;
+  nombre: string;
+  precio_base: number;
+}
+
+interface CargoExtra {
   id: string;
   nombre: string;
   precio_base: number;
@@ -215,7 +221,9 @@ export default function CargaGeneralPage() {
   const [clients, setClients] = useState<SimpleClient[]>([]);
   const [availableServices, setAvailableServices] = useState<GeneralCargoEquipment[]>([]);
   const [tolvas, setTolvas] = useState<Tolva[]>([]); // Lista de tolvas
-  const [selectedTolva, setSelectedTolva] = useState<string>(""); // Tolva seleccionada
+  const [cargosExtras, setCargosExtras] = useState<CargoExtra[]>([]);
+  const [selectedCargoExtra, setSelectedCargoExtra] = useState<string>("");
+  const [precioCargoExtra, setPrecioCargoExtra] = useState("");
   
   const [loadingServices, setLoadingServices] = useState(false);
   const [servicesError, setServicesError] = useState<string | null>(null);
@@ -234,10 +242,34 @@ export default function CargaGeneralPage() {
   const [ticketData, setTicketData] = useState<any>(null);
 
   const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const lastTolvaIdRef = useRef<string>("");
+
+  const parsedServicioSeleccionado = useMemo(() => {
+    if (!servicioSeleccionado) return { kind: null as null | "equipo" | "tolva", id: "" };
+
+    if (servicioSeleccionado.startsWith("equipo:")) {
+      return { kind: "equipo" as const, id: servicioSeleccionado.slice("equipo:".length) };
+    }
+
+    if (servicioSeleccionado.startsWith("tolva:")) {
+      return { kind: "tolva" as const, id: servicioSeleccionado.slice("tolva:".length) };
+    }
+
+    const matchesTolva = tolvas.some((t) => t.id === servicioSeleccionado);
+    const matchesEquipo = availableServices.some((s) => s.id === servicioSeleccionado);
+
+    if (matchesTolva && !matchesEquipo) {
+      return { kind: "tolva" as const, id: servicioSeleccionado };
+    }
+
+    return { kind: "equipo" as const, id: servicioSeleccionado };
+  }, [availableServices, servicioSeleccionado, tolvas]);
 
   const selectedService = useMemo(() => 
-    availableServices.find(s => s.id === servicioSeleccionado),
-    [availableServices, servicioSeleccionado]
+    parsedServicioSeleccionado.kind === "equipo"
+      ? availableServices.find(s => s.id === parsedServicioSeleccionado.id)
+      : undefined,
+    [availableServices, parsedServicioSeleccionado]
   );
 
   const allowedLoadTypes = useMemo(() => {
@@ -375,6 +407,15 @@ export default function CargaGeneralPage() {
          setTolvas(tolvasData);
       }
 
+      const { data: cargosExtrasData } = await supabase
+        .from('cargos_extras')
+        .select('id, nombre, precio_base')
+        .order('nombre');
+
+      if (cargosExtrasData) {
+        setCargosExtras(cargosExtrasData);
+      }
+
     } catch (error) {
       console.error("Error fetching companies/clients/tolvas:", error);
     }
@@ -383,17 +424,36 @@ export default function CargaGeneralPage() {
   fetchCompaniesAndClients();
 }, []);
 
-// Watch for selectedTolva changes to update price
-useEffect(() => {
-   if (selectedTolva) {
-      const t = tolvas.find(item => item.id === selectedTolva);
-      if (t) {
-         // If price is > 0, set it. If 0, maybe clear it to force manual entry or set 0.
-         // Let's set it to whatever is in DB.
-         setPrecioTolva(t.precio_base ? t.precio_base.toString() : "");
+  useEffect(() => {
+    if (parsedServicioSeleccionado.kind === "tolva") {
+      const tolvaId = parsedServicioSeleccionado.id;
+      const t = tolvas.find((item) => item.id === tolvaId);
+
+      const shouldAutofill = lastTolvaIdRef.current !== tolvaId || (!precioTolva && !!t);
+      if (shouldAutofill) {
+        lastTolvaIdRef.current = tolvaId;
+        setPrecioTolva(t?.precio_base ? t.precio_base.toString() : "");
       }
-   }
-}, [selectedTolva, tolvas]);
+      return;
+    }
+
+    lastTolvaIdRef.current = "";
+    setPrecioTolva("");
+  }, [parsedServicioSeleccionado, precioTolva, tolvas]);
+
+  useEffect(() => {
+    if (selectedCargoExtra) {
+      const extra = cargosExtras.find((item) => item.id === selectedCargoExtra);
+      if (extra) {
+        setPrecioCargoExtra(extra.precio_base ? extra.precio_base.toString() : "");
+      } else {
+        setPrecioCargoExtra("");
+      }
+      return;
+    }
+
+    setPrecioCargoExtra("");
+  }, [cargosExtras, selectedCargoExtra]);
 
   // Auto-generate folio when origin changes
   useEffect(() => {
@@ -497,6 +557,48 @@ useEffect(() => {
         return;
       }
 
+      if (parsedServicioSeleccionado.kind === "tolva") {
+        const tolvaName =
+          tolvas.find((t) => t.id === parsedServicioSeleccionado.id)?.nombre || "Tolva";
+        const precioTolvaNum = parseFloat(precioTolva);
+        if (!precioTolva || isNaN(precioTolvaNum) || precioTolvaNum <= 0) {
+          setQuoteError("Debes ingresar un precio de tolva para generar la cotización.");
+          return;
+        }
+
+        const currency: "USD" | "EUR" | "MXN" =
+          (divisa as "USD" | "EUR" | "MXN") || "MXN";
+
+        const tolvaOption: QuoteOption = {
+          equipmentName: tolvaName,
+          tariffType: "Manual",
+          basePrice: precioTolvaNum,
+          currency
+        };
+
+        setQuoteOptions([tolvaOption]);
+        setTicketData({
+          ...tolvaOption,
+          empresa,
+          emitente,
+          fechaExpedicion: diaExpedicion,
+          fechaVigencia: diaVigencia,
+          folio: numeroCotizacion,
+          origen: searchedOrigen || origen,
+          destino: searchedDestino || destino,
+          items: cargoItems,
+          tipoCarga: loadType || tolvaOption.tariffType,
+          tipoServicio: tolvaOption.equipmentName,
+          nombreCliente: nombreCliente || empresa,
+          tiempoCargaDescarga: tiempoCargaDescarga,
+          cargoExtraNombre: selectedCargoExtra
+            ? cargosExtras.find((c) => c.id === selectedCargoExtra)?.nombre || ""
+            : "",
+          precioCargoExtra: precioCargoExtra
+        });
+        return;
+      }
+
       // Determine which table to search based on Origin
       const originLower = origenTexto.toLowerCase();
       let baseOrigen = "";
@@ -555,8 +657,8 @@ useEffect(() => {
 
       // If a specific service is selected, we prioritize it
       let selectedEquipment = null;
-      if (servicioSeleccionado) {
-        selectedEquipment = equipmentsToUse.find(eq => eq.id === servicioSeleccionado);
+      if (parsedServicioSeleccionado.kind === "equipo" && parsedServicioSeleccionado.id) {
+        selectedEquipment = equipmentsToUse.find(eq => eq.id === parsedServicioSeleccionado.id);
       }
 
       const candidates = equipmentsToUse.filter((eq) => {
@@ -671,7 +773,11 @@ useEffect(() => {
         tipoServicio: selectedOption.equipmentName,
         nombreCliente: nombreCliente || empresa, // Pass client name if available
         tiempoCargaDescarga: tiempoCargaDescarga, // New field
-        precioTolva: precioTolva // New field
+        precioTolva: precioTolva, // New field
+        cargoExtraNombre: selectedCargoExtra
+          ? cargosExtras.find((c) => c.id === selectedCargoExtra)?.nombre || ""
+          : "",
+        precioCargoExtra: precioCargoExtra
       });
       // setShowTicket(true); // Removed auto-switch
       
@@ -717,7 +823,7 @@ useEffect(() => {
                  fecha_vigencia: ticketData.fechaVigencia,
                  origen: ticketData.origen,
                  destino: ticketData.destino,
-                 monto_total: (ticketData.basePrice || 0) + (ticketData.precioTolva ? parseFloat(ticketData.precioTolva) : 0), // Calculate total
+                 monto_total: (ticketData.basePrice || 0) + (ticketData.precioTolva ? parseFloat(ticketData.precioTolva) : 0) + (ticketData.precioCargoExtra ? parseFloat(ticketData.precioCargoExtra) : 0), // Calculate total
                  divisa: ticketData.divisa || 'MXN',
                  estado: 'pendiente',
                  items: ticketData.items,
@@ -726,6 +832,8 @@ useEffect(() => {
                  detalles_adicionales: {
                     tiempoCargaDescarga: ticketData.tiempoCargaDescarga,
                     precioTolva: ticketData.precioTolva,
+                    cargoExtraNombre: ticketData.cargoExtraNombre,
+                    precioCargoExtra: ticketData.precioCargoExtra,
                     tipoCarga: ticketData.tipoCarga
                  }
                };
@@ -925,16 +1033,30 @@ useEffect(() => {
                           <SelectItem value="error" disabled>
                             Error: {servicesError}
                           </SelectItem>
-                        ) : availableServices.length === 0 ? (
+                        ) : availableServices.length === 0 && tolvas.length === 0 ? (
                           <SelectItem value="none" disabled>
                             No hay servicios disponibles
                           </SelectItem>
                         ) : (
-                          availableServices.map((eq) => (
-                            <SelectItem key={eq.id} value={eq.id}>
-                              {eq.name}
-                            </SelectItem>
-                          ))
+                          <>
+                            {availableServices.map((eq) => (
+                              <SelectItem key={eq.id} value={eq.id}>
+                                {eq.name}
+                              </SelectItem>
+                            ))}
+                            {tolvas.length > 0 && (
+                              <>
+                                <SelectItem value="__tolvas_header" disabled>
+                                  Tolvas
+                                </SelectItem>
+                                {tolvas.map((t) => (
+                                  <SelectItem key={t.id} value={`tolva:${t.id}`}>
+                                    {t.nombre}
+                                  </SelectItem>
+                                ))}
+                              </>
+                            )}
+                          </>
                         )}
                       </SelectContent>
                     </Select>
@@ -942,6 +1064,18 @@ useEffect(() => {
                       Servicios cargados: {availableServices.length}
                       {availableServices.length > 0 && ` (Ejemplo: ${availableServices[0].name})`}
                     </div>
+                    {parsedServicioSeleccionado.kind === "tolva" && (
+                      <div className="mt-2 space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3">
+                        <Label htmlFor="precioTolva">Precio Tolva</Label>
+                        <Input
+                          id="precioTolva"
+                          type="number"
+                          placeholder="0.00"
+                          value={precioTolva}
+                          onChange={(e) => setPrecioTolva(e.target.value)}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -984,38 +1118,33 @@ useEffect(() => {
                     </Select>
                   </div>
 
-                  {/* Precio Tolva */}
                   <div className="space-y-2">
-                    <Label htmlFor="precioTolva">Precio Tolva (por ton/viaje)</Label>
+                    <Label>Cargos Extras</Label>
                     <div className="flex gap-2">
-                       {/* Selector de Tolvas */}
-                       <Select
-                          value={selectedTolva}
-                          onValueChange={(value) => setSelectedTolva(value)}
-                       >
-                         <SelectTrigger className="w-full">
-                           <SelectValue placeholder="Tipo de Tolva" />
-                         </SelectTrigger>
-                         <SelectContent>
-                           <SelectItem value="none">Ninguna / Manual</SelectItem>
-                           {tolvas.map((t) => (
-                             <SelectItem key={t.id} value={t.id}>
-                               {t.nombre}
-                             </SelectItem>
-                           ))}
-                         </SelectContent>
-                       </Select>
-
-                       <Input
-                          id="precioTolva"
-                          type="number"
-                          placeholder="Precio"
-                          value={precioTolva}
-                          onChange={(e) => setPrecioTolva(e.target.value)}
-                          className="w-24"
-                       />
+                      <Select
+                        value={selectedCargoExtra}
+                        onValueChange={(value) => setSelectedCargoExtra(value === "none" ? "" : value)}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Selecciona un cargo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Ninguno / Manual</SelectItem>
+                          {cargosExtras.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.nombre}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        placeholder="Precio"
+                        value={precioCargoExtra}
+                        onChange={(e) => setPrecioCargoExtra(e.target.value)}
+                        className="w-24"
+                      />
                     </div>
-                    <p className="text-[10px] text-gray-500">Selecciona un tipo de tolva para autocompletar precio o escribe manual.</p>
                   </div>
                 </div>
               </CardContent>
@@ -1265,9 +1394,11 @@ useEffect(() => {
                                 if (!isNaN(val) && val > 0) {
                                    // Update options manually
                                    const newOption: QuoteOption = {
-                                      equipmentName: servicioSeleccionado ? 
-                                        (availableServices.find(s => s.id === servicioSeleccionado)?.name || "Flete Dedicado") 
-                                        : "Flete Dedicado",
+                                      equipmentName: parsedServicioSeleccionado.kind === "tolva"
+                                        ? (tolvas.find((t) => t.id === parsedServicioSeleccionado.id)?.nombre || "Tolva")
+                                        : parsedServicioSeleccionado.kind === "equipo"
+                                          ? (availableServices.find((s) => s.id === parsedServicioSeleccionado.id)?.name || "Flete Dedicado")
+                                          : "Flete Dedicado",
                                       tariffType: loadType || "Manual",
                                       basePrice: val,
                                       currency: divisa as any
@@ -1300,7 +1431,13 @@ useEffect(() => {
                                    destino: searchedDestino || destino,
                                    items: cargoItems,
                                    tipoCarga: loadType || "Manual",
-                                   tipoServicio: "Flete Dedicado (Manual)"
+                                   tipoServicio: "Flete Dedicado (Manual)",
+                                   tiempoCargaDescarga: tiempoCargaDescarga,
+                                   precioTolva: precioTolva,
+                                   cargoExtraNombre: selectedCargoExtra
+                                     ? cargosExtras.find((c) => c.id === selectedCargoExtra)?.nombre || ""
+                                     : "",
+                                   precioCargoExtra: precioCargoExtra
                                  });
                                  setShowTicket(true);
                               }
